@@ -32,13 +32,13 @@ predgrid <- with(caps, expand.grid(long = seq(-180, 180, by = 5),
 m0 <- gam( sqrt(pop) ~ s(long, lat, bs = "gp", m = -3), data = caps)
 
 predgrid$pop0 <- predict(m0, newdata = predgrid)^2
-p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop0)), alpha = .7, show.legend = F)
+p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop0)), alpha = .8, show.legend = F)
 
 # now the same with Euclidean GP2 ---------------------------------------
 
 m1 <- gam( sqrt(pop) ~ s(long, lat, bs = "gp2", m = -3), data = caps)
 predgrid$pop1 <- predict(m1, newdata = predgrid)^2
-p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop1)), alpha = .7, show.legend = F)
+p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop1)), alpha = .8, show.legend = F)
 
 all.equal(predgrid$pop0, predgrid$pop1)
 
@@ -48,6 +48,6 @@ all.equal(predgrid$pop0, predgrid$pop1)
 m2 <- gam( sqrt(pop) ~ s(long, lat, bs = "gp2", m = -3,
                          xt = list(distance = geosphere::distVincentySphere)), data = caps)
 predgrid$pop2 <- predict(m2, newdata = predgrid)^2
-(p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop1)), alpha = .7, show.legend = F)) /
-  (p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop2)), alpha = .7, show.legend = F))
+(p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop1)), alpha = .8, show.legend = F)) /
+  (p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop2)), alpha = .8, show.legend = F))
 

@@ -122,6 +122,10 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
   if(object$dim %% 2)
     stop("Sorry, even number of terms required.")
 
+  if(!(object$xt$bsmargin %in% c("ps", "gp2")))
+    warning("Only tested with bsmargin = 'ps' or = 'gp2', yet.
+            `gp` for instance does not work." )
+
   #############################
   # set defaults if no optional
   # arguments are given
@@ -135,43 +139,60 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
   if(is.null(object$xt$kroneckersum))
     object$xt$kroneckersum <- TRUE
 
-    xids <- matrix(object$dim, ncol = 2)
-    # x1 <- data[object$term[xids[,1]]]
-    # x2 <- data[[object$term[xids[,2]]]]
+    xids <- matrix(seq_len(object$dim), ncol = 2)
 
-    if(length(unique(x)) < object$bs.dim)
-      warning("basis dimension is larger than number of unique covariates")
+    # if(length(unique(x)) < object$bs.dim)
+    #   warning("basis dimension is larger than number of unique covariates")
 
     #############
     # check knots
     #############
-    k1 <- list()
     for(i in 1:nrow(xids)) {
-      k1[[i]] <- if(is.null(knots[[object$term[1]]]))
-        knots[[object$term[2]]] else knots[[object$term[1]]]
-      k2 <- knots[[object$term[2]]]
-      if(!is.null(k2)) {
-        if(!identical(k1[[i]], k2))
+      term <- object$term[xids[i,]]
+      isn <- sapply(term, function(i) is.null(knots[i]))
+      if(sum(isn) == 1)
+        knots[[term[which(!isn)]]] <- knots[[term[which(isn)]]]
+      if(sum(isn) == 2 & !identical(knots[[term[1]]],
+                                    knots[[term[2]]]))
           stop("number of specified knots is not equal for both margins")
-      }
-      # if(is.null(k1[[i]])) k1[[i]] <- range(data[object$term])
     }
-
-    object$knots <- k1
-    names(object$knots) <- object$term[xids[1,]]
+    if(length(knots) < object$dim) {
+      message("Some knots are not provided.
+              Knots from first marginal smoother are used also for the second.")
+    }
 
     ##############################
     # build marginal design matrix
     # and marginal penalties
     ##############################
     smooths <- list()
-    for(i in 1:2) smooth.construct(eval(as.call(list(as.symbol("s"),
-                                                  as.symbol(object$term[xids[,i]]),
-                                                  bs = object$xt$bsmargin,
-                                                  k = object$bs.dim,
-                                                  m = object$p.order))),
-                                   data = data,
-                                    knots = object$knots)
+    for(i in 1:2) {
+      smooths[[i]] <- smooth.construct(eval(as.call(list(as.symbol("s"),
+                                                         as.symbol(object$term[xids[,i]]),
+                                                         bs = object$xt$bsmargin,
+                                                         k = object$bs.dim,
+                                                         xt = object$xt,
+                                                         m = object$p.order))),
+                                       data = data,
+                                       knots = knots)
+      if(i==1) {
+        for(j in 1:nrow(xids)) {
+          term <- object$term[xids[i,]]
+          if(is.null(knots[[term[2]]])) {
+            k1 <- smooths[[1]]$knots
+            if(is.null(k1))
+              k1 <- smooths[[1]]$knt
+            if(is.null(k1))
+              stop("Knots not available in first smoother. Please manually specify all knots.")
+            if(is.list(k1))
+              knots[[term[2]]] <- k1[[term[1]]] else
+                knots[[term[2]]] <- k1
+          }
+        }
+        object$bs.dim <- smooths[[1]]$bs.dim
+      }
+    }
+
     ############################
     # build tensor product model
     # matrix and penalty matrix
@@ -192,10 +213,9 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
     # of columns of X and adaption of penalty matrix
     ################################################
 
-    Z <- make_summation_matrix(k = object$bs.dim,
+    Z <- make_summation_matrix(k = smooths[[1]]$bs.dim,
                                skew = object$xt$skew)
     object$margin <- smooths
-    object$m <- m
     bs.dim <- ncol(Z)
 
   #########################
@@ -251,7 +271,7 @@ Predict.matrix.symm.smooth <- function (object, data) {
     }
     X <- tensor.prod.model.matrix(X)
     if(is.null(object$Z)) {
-      Z <- make_summation_matrix(k = object$bs.dim, skew = object$xt$skew)
+      Z <- make_summation_matrix(k = object$margin[[1]]$bs.dim, skew = object$xt$skew)
     } else {
       Z <- object$Z
     }

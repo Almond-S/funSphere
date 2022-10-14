@@ -258,7 +258,6 @@ Predict.matrix.symm.smooth <- function (object, data) {
   # only also allowing for the skew-symmetric option
   # in make_summation_matrix
 
-  if(length(object$term) == 2) {
     m <- length(object$margin)
     X <- list()
     for (i in 1:m) {
@@ -277,6 +276,5 @@ Predict.matrix.symm.smooth <- function (object, data) {
     }
 
     X %*% Z
-  }
 
 }

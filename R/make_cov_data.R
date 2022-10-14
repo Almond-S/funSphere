@@ -1,15 +1,15 @@
 
-#' Title
+#' Generate dataset for covariance estimation of irregular functional data
 #'
-#' @param data
-#' @param response_var
-#' @param id_var
-#' @param var_sep
+#' @param data a data.frame
+#' @param response_var character string indicating the name of the response in \code{data}.
+#' @param id_var character string indicating the name of the id variable in \code{data}
+#'               identifying the functional observations.
+#' @param sep character string seperating argument/covariate names and their number 1 and 2.
 #'
-#' @return
+#' @return data.frame with data for covariance estimation
 #' @export
 #'
-#' @examples
 make_cov_data <- function(data, response_var, id_var = NULL, sep = "") {
   stopifnot(is.data.frame(data))
   covs <- setdiff(names(data), c(response_var, id_var))

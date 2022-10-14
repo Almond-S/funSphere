@@ -36,15 +36,23 @@ gpE <- function(x,xk,defn = NA, distance = function(x, y) sqrt(sum((x-y)^2))) {
 } ## gpE
 
 
-#' Gaussian process smooth on the 2-Sphere
+#' Gaussian process smooth for general distances
 #'
-#' @param object
-#' @param data
-#' @param knots
+#' @param object object of class \code{gp2.smooth.spec} as returned by \code{s(..., bs = "gp2")}.
+#' @param data data
+#' @param knots knots
 #'
-#' @return
+#' @details This smooth is mostly a copy of the \code{gp.smooth} with two differences:
+#' 1. via \code{s(..., xt = list(distance = d))} a distance function \code{d} can
+#' be specified with two arguments each taking a vector with all supplied covariates.
+#' For instance, the euclidean distance (default) is specified as
+#' \code{d <- function(x,y) sqrt(sum((x-y)^2))}.
+#' 2.supplied terms \code{x} and \code{knots} are not centered by substracting \code{colmeans(x)}.
+#'
+#' @return fitting object of class \code{gp2.smooth}.
 #' @export
 #'
+#' @example test/smooth.construct.gp2.smooth.spec_test.R
 smooth.construct.gp2.smooth.spec <- function(object,data,knots)
   ## The constructor for a Kamman and Wand (2003) Matern Spline, and other GP smoothers.
   ## See also Handcock, Meier and Nychka (1994), and Handcock and Stein (1993).

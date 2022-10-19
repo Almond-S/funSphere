@@ -4,7 +4,7 @@
 \alias{smooth.construct.symm.smooth.spec}
 \title{Symmetric bivariate smooths constructor}
 \usage{
-smooth.construct.symm.smooth.spec(object, data, knots)
+\method{smooth.construct}{symm.smooth.spec}(object, data, knots)
 }
 \arguments{
 \item{object}{is a smooth specification object or a smooth object.}

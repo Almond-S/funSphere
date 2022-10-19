@@ -1,5 +1,6 @@
 
 library(mgcv)
+library(funSphere)
 
 # check out example dataset ------------------------------------------------
 

@@ -35,7 +35,6 @@ gpE <- function(x,xk,defn = NA, distance = function(x, y) sqrt(sum((x-y)^2))) {
   E
 } ## gpE
 
-
 #' Gaussian process smooth for general distances
 #'
 #' @param object object of class \code{gp2.smooth.spec} as returned by \code{s(..., bs = "gp2")}.
@@ -49,7 +48,9 @@ gpE <- function(x,xk,defn = NA, distance = function(x, y) sqrt(sum((x-y)^2))) {
 #' \code{d <- function(x,y) sqrt(sum((x-y)^2))}.
 #' 2.supplied terms \code{x} and \code{knots} are not centered by substracting \code{colmeans(x)}.
 #'
+#' @importFrom mgcv smooth.construct
 #' @return fitting object of class \code{gp2.smooth}.
+#' @method smooth.construct gp2.smooth.spec
 #' @export
 #'
 #' @example test/smooth.construct.gp2.smooth.spec_test.R
@@ -182,7 +183,9 @@ smooth.construct.gp2.smooth.spec <- function(object,data,knots)
   object
 } ## end of smooth.construct.gp2.smooth.spec
 
-
+#' @importFrom mgcv Predict.matrix
+#' @method Predict.matrix gp2.smooth
+#' @export
 Predict.matrix.gp2.smooth <- function(object,data)
   # prediction method function for the gp (Matern) smooth class
 { nk <- nrow(object$knt) ## number of 'knots'
@@ -222,4 +225,4 @@ if (n > nk) { ## split into chunks to save memory
   X <- cbind(X%*%object$UZ,gpT(x=x,object$gp.defn))
 }
 X
-} ## end of Predict.matrix.gp.smooth
+} ## end of Predict.matrix.gp2.smooth

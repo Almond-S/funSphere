@@ -4,7 +4,7 @@
 \alias{smooth.construct.gp2.smooth.spec}
 \title{Gaussian process smooth for general distances}
 \usage{
-smooth.construct.gp2.smooth.spec(object, data, knots)
+\method{smooth.construct}{gp2.smooth.spec}(object, data, knots)
 }
 \arguments{
 \item{object}{object of class \code{gp2.smooth.spec} as returned by \code{s(..., bs = "gp2")}.}

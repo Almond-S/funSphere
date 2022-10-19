@@ -4,7 +4,7 @@
 \alias{Predict.matrix.symm.smooth}
 \title{Predict matrix method for (skew-)symmetric bivariate smooths.}
 \usage{
-Predict.matrix.symm.smooth(object, data)
+\method{Predict.matrix}{symm.smooth}(object, data)
 }
 \arguments{
 \item{object}{is a \code{symm.smooth} object created by \code{\link{smooth.construct.symm.smooth.spec}},

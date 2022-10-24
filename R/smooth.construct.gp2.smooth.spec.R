@@ -101,7 +101,7 @@ smooth.construct.gp2.smooth.spec <- function(object,data,knots)
   }
 
   xu <- uniquecombs(matrix(x,n,object$dim),TRUE) ## find the unique `locations'
-  if (nrow(xu) < object$bs.dim) stop(
+  if (nrow(xu) < object$bs.dim-1) stop(
     "A term has fewer unique covariate combinations than specified maximum degrees of freedom")
   ## deal with possibility of large data set
   if (nk==0) { ## need to create knots

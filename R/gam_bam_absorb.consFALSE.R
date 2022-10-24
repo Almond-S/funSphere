@@ -200,7 +200,7 @@ gam_ <- function(formula,family=gaussian(),data=list(),weights=NULL,subset=NULL,
 
 # copy of mgcv:bam, only with absorb.cons = FALSE passed to gam.setup
 #' @import mgcv
-bam <- function(formula,family=gaussian(),data=list(),weights=NULL,subset=NULL,na.action=na.omit,
+bam_ <- function(formula,family=gaussian(),data=list(),weights=NULL,subset=NULL,na.action=na.omit,
                 offset=NULL,method="fREML",control=list(),select=FALSE,scale=0,gamma=1,knots=NULL,sp=NULL,
                 min.sp=NULL,paraPen=NULL,chunk.size=10000,rho=0,AR.start=NULL,discrete=FALSE,
                 cluster=NULL,nthreads=1,gc.level=0,use.chol=FALSE,samfrac=1,coef=NULL,

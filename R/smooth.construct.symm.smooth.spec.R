@@ -94,7 +94,7 @@ make_summation_matrix <- function(k, skew = FALSE){
 #'  to be supplied for basis construction.
 #' @seealso \code{\link[mgcv]{smooth.construct}} and \code{\link[mgcv]{smoothCon}} for details on constructors
 #' @export
-#' @author Jona Cederbaum, Almond Stoecker
+#' @author Almond Stoecker, Jona Cederbaum
 #' @return An object of class "symm.smooth". See \code{\link[mgcv]{smooth.construct}} for the elements it will contain.
 #' @references Cederbaum, Scheipl, Greven (2016): Fast symmetric additive covariance smoothing.
 #' Stoecker, Pfeuffer, Steyer, Greven (2022): Elastic Full Procrustes Analysis via Hermitian Covariance Smoothing.
@@ -124,6 +124,7 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
     object$xt$kroneckersum <- TRUE
 
     xids <- matrix(seq_len(object$dim), ncol = 2)
+    colnames(xids) <- c("left", "right")
 
     # if(length(unique(x)) < object$bs.dim)
     #   warning("basis dimension is larger than number of unique covariates")
@@ -149,33 +150,21 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
     # build marginal design matrix
     # and marginal penalties
     ##############################
-    smooths <- list()
-    for(i in 1:2) {
-      smooths[[i]] <- smooth.construct(eval(as.call(list(as.symbol("s"),
-                                                         as.symbol(object$term[xids[,i]]),
-                                                         bs = object$xt$bsmargin,
-                                                         k = object$bs.dim,
-                                                         xt = object$xt,
-                                                         m = object$p.order))),
-                                       data = data,
-                                       knots = knots)
-      if(i==1) {
-        for(j in 1:nrow(xids)) {
-          term <- object$term[xids[i,]]
-          if(is.null(knots[[term[2]]])) {
-            k1 <- smooths[[1]]$knots
-            if(is.null(k1))
-              k1 <- smooths[[1]]$knt
-            if(is.null(k1))
-              stop("Knots not available in first smoother. Please manually specify all knots.")
-            if(is.list(k1))
-              knots[[term[2]]] <- k1[[term[1]]] else
-                knots[[term[2]]] <- k1
-          }
-        }
-        object$bs.dim <- smooths[[1]]$bs.dim
-      }
-    }
+    smooths <- s_evals <- list()
+    for(i in 1:2) s_evals[[i]] <- eval(as.call(c(
+      list(as.symbol("s")),
+      lapply(object$term[xids[,i]], as.symbol),
+      list(bs = object$xt$bsmargin,
+           k = object$bs.dim,
+           xt = object$xt,
+           m = object$p.order))))
+
+    smooths[[1]] <- smooth.construct(s_evals[[1]],
+        data = data,
+        knots = knots)
+    smooths[[2]] <- smooths[[1]]
+    smooths[[2]][c("term", "label")] <- s_evals[[2]][c("term", "label")]
+    smooths[[2]]$X <- Predict.matrix(smooths[[2]], data)
 
     ############################
     # build tensor product model

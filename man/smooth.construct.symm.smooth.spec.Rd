@@ -43,6 +43,7 @@ to the tensor product design matrix and to the penalty matrix.
 \examples{
 
 library(mgcv)
+library(funSphere)
 
 # check out example dataset ------------------------------------------------
 

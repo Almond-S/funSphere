@@ -32,6 +32,7 @@ For instance, the euclidean distance (default) is specified as
 \examples{
 
 library(mgcv)
+library(funSphere)
 
 
 # check out example dataset ------------------------------------------------

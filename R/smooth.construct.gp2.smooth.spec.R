@@ -149,7 +149,11 @@ smooth.construct.gp2.smooth.spec <- function(object,data,knots)
 
   def.k <- c(10,30,100)
   dd <- ncol(knt)
-  if (object$bs.dim[1] < 0) object$bs.dim <- ncol(knt) + 1 + def.k[dd] ## default basis dimension
+  if (object$bs.dim[1] < 0) { ## default basis dimension
+    if(dd > 3) stop("No default basis dimension for GP domain of >3 dimensions.
+                    Please, specify `k`.")
+    object$bs.dim <- min(ncol(knt) + 1 + def.k[dd], nrow(E))
+  }
   if (object$bs.dim < ncol(knt)+2) {
     object$bs.dim <- ncol(knt)+2
     warning("basis dimension reset to minimum possible")

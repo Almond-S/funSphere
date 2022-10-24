@@ -20,9 +20,9 @@ world <- map_data("world")
       color = "black", fill = "lightgray", size = 0.1
     ) +
     coord_cartesian(xlim = c(-180, 180), ylim = c(-90, 90), expand = F) +
-    coord_fixed() +
-    geom_point(data = caps, aes(long, lat, col = sqrt(pop)))
-)
+    coord_fixed()
+) +
+  geom_point(data = caps, aes(long, lat, col = sqrt(pop)))
 
 
 # first fit strange symmetric 2D GP -------------------------------------
@@ -31,7 +31,8 @@ m0 <- gam(sqrt(pop) ~ s(long, lat, bs = "symm",
 predgrid <- expand.grid(long = seq(-180, 180, 10), lat = seq(-180, 180, 10))
 predgrid$pop0 <- predict(m0, predgrid)^2
 
-p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop0)), alpha = .96, show.legend = F)
+p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop0)), alpha = .96) +
+  scale_fill_viridis_c()
 
 pop0 <- matrix(predgrid$pop0, nrow = sqrt(nrow(predgrid)))
 all.equal(pop0, t(pop0))
@@ -56,15 +57,37 @@ m1 <- gam(sqrt(poppop) ~ s(long1, lat1, long2, lat2, bs = "symm",
                         xt = list(bsmargin = "gp2"), m = -3), data = covcaps)
 
 predgrid1 <- expand.grid(
-  long1 = seq(-180, 180, 10), lat1 = seq(-90, 90, len = 5),
-  long2 = seq(-180, 180, 10), lat2 = 0 )
-predgrid1$poppop <- predict(m1, predgrid1)^2
+  long1 = seq(-180, 180, 10), lat1 = seq(-90, 90, 5),
+  long2 = c(-90, 0), lat2 = c(-20,0) )
+predgrid2 <- predgrid1
+names(predgrid2) <- names(predgrid1)[c(3:4,1:2)]
 
-p + geom_raster(data = predgrid1,
-                aes(long1, long2,
+predgrid1$poppop <- predict(m1, predgrid1)^2
+predgrid2$poppop <- predict(m1, predgrid2)^2
+
+(p + geom_raster(data = predgrid1,
+                aes(long1, lat1,
                     fill = sqrt(poppop)),
-                alpha = .96, show.legend = F) +
-  facet_wrap(~lat1)
+                alpha = .96) +
+  scale_fill_viridis_c() +
+  facet_grid(lat2~long2, labeller = label_both)) +
+(p + geom_raster(data = predgrid2,
+                aes(long2, lat2,
+                    fill = sqrt(poppop)),
+                alpha = .96) +
+  scale_fill_viridis_c() +
+  facet_grid(lat1~long1, labeller = label_both))
+
+predgrid_sym <- expand.grid(
+  long1 = seq(-180, 180, 10), lat1 = c(-20,0),
+  long2 = seq(-180, 180, 10), lat2 = c(-20,0) )
+predgrid_sym$poppop <- predict(m1, predgrid_sym)^2
+
+ggplot(predgrid_sym, aes(long1, long2, fill = sqrt(poppop))) +
+  geom_raster() + geom_contour(aes(z = sqrt(poppop)), col = "white") +
+  scale_fill_viridis_c() +
+  facet_grid(lat1 ~ lat2, labeller = label_both) +
+  coord_fixed()
 
 predgrid_diag <- expand.grid(long1 = seq(-180, 180, 10),
                              lat1 = seq(-90, 90, 10))
@@ -75,6 +98,7 @@ predgrid_diag$poppop <- predict(m1, predgrid_diag)^2
 p + geom_raster(data = predgrid_diag,
                 aes(long1, lat1,
                     fill = sqrt(poppop)),
-                alpha = .9, show.legend = F)
+                alpha = .9) +
+  scale_fill_viridis_c()
 
 

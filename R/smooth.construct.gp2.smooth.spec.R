@@ -4,12 +4,12 @@ gpT <- function(x,defn) {
   if (defn[1]<0) x[,1]*0+1 else cbind(x[,1]*0+1,x)
 } ## gpT
 
-gpE <- function(x,xk,defn = NA, distance = function(x, y) sqrt(sum((x-y)^2))) {
+gpE <- function(x,xk,defn = NA, distance = function(x, y) sqrt(rowSums((x - y)^2))) {
   ## Get the E matrix for a Kammann and Wand Matern spline.
   ## rho is the range parameter... set to K&W default if not supplied
   ind <- expand.grid(x=1:nrow(x),xk=1:nrow(xk))
   ## get d[i,j] the Euclidian distance from x[i] to xk[j]...
-  E <- matrix(apply(ind, 1, function(i) distance(x[i[1], ], xk[i[2], ])),nrow(x),nrow(xk))
+  E <- matrix(distance(x[ind$x, , drop = FALSE], xk[ind$xk, , drop = FALSE]), nrow(x), nrow(xk))
   rho <- -1; k <- 1
   sign.type <- 1
   if ((length(defn)==1&&is.na(defn))||length(defn)<1) { type <- 3 } else
@@ -108,7 +108,7 @@ smooth.construct.gp2.smooth.spec <- function(object,data,knots)
     nu <- nrow(xu)  ## number of unique locations
     if (n > xtra$max.knots) { ## then there *may* be too many data
       if (nu > xtra$max.knots) { ## then there is really a problem
-        rngs <- temp.seed(xtra$seed)
+        rngs <- mgcv:::temp.seed(xtra$seed)
         #seed <- try(get(".Random.seed",envir=.GlobalEnv),silent=TRUE) ## store RNG seed
         #if (inherits(seed,"try-error")) {
         #  runif(1)
@@ -120,7 +120,7 @@ smooth.construct.gp2.smooth.spec <- function(object,data,knots)
         nk <- xtra$max.knots ## going to create nk knots
         ind <- sample(1:nu,nk,replace=FALSE)  ## by sampling these rows from xu
         knt <- as.numeric(xu[ind,])  ## ... like this
-        temp.seed(rngs)
+        mgcv:::temp.seed(rngs)
         #RNGkind(kind[1],kind[2])
         #assign(".Random.seed",seed,envir=.GlobalEnv) ## RNG behaves as if it had not been used
       } else {
@@ -141,7 +141,7 @@ smooth.construct.gp2.smooth.spec <- function(object,data,knots)
   ## Get distance function
   distance <- object$xt$distance
   if(is.null(distance))
-    distance <- function(x, y) sqrt(sum((x-y)^2))
+    distance <- function(x, y) sqrt(rowSums((x - y)^2))
 
   ## Get the E matrix...
   E <- gpE(knt,knt,object$p.order, distance)

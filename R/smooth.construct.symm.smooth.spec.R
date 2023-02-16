@@ -73,14 +73,27 @@ make_summation_matrix <- function(k, skew = FALSE){
 #' a (skew-)symmetry constraint on the smooth's coefficients,
 #' which considerably reduces the number of coefficients that have to be estimated.
 #'
-#' @details By default a symmetric bivariate B-spline smooth \eqn{g} is specified,
+#' @details By default a symmetric bivariate smooth \eqn{g} is specified,
 #' in the sense that \eqn{g(s, t) = g(t, s)}.
 #' In contrast to the original implementation of the function in the package
 #' \code{sparseFLMM}, this implementation also works for more general smooths
 #' and any even number of arguments, i.e. \eqn{g(s1, s2, ..., t1, t2, ...) = g(t1, t2, ..., s1, s2, ...)}.
-#' By setting
-#' \code{s(..., bs = "symm", xt = list(skew = TRUE))}, a skew-symmetric (or anti-smmetric)
-#' smooth with \eqn{g(s, t) = -g(t, s)} can be specified instead.
+#'
+#' Several options can be specified via the argument \code{xt} of \code{s()} with the
+#' default given by
+#'
+#' \code{s(..., bs = "symm", xt = list(bsmargin = "ps", skew = FALSE, absorb.cons = TRUE, kroneckersum = TRUE))}
+#'
+#' with
+#' - \code{bsmargin}: the marginal basis type (the \code{bs} argument used to construct them).
+#' - \code{skew}: should a skew-symmetric (or anti-symmetric) smooth with \eqn{g(s, t) = -g(t, s)}
+#' be specified instead of a symmetric smooth?
+#' - \code{absorb.cons}: should the automatic sum-to-zero constraint be applied?
+#' Turning it off, no additional transformation of the design and
+#' penalty matrices is conducted and the obtained coefficients directly correspond
+#' to them. In this case, the constant intercept should be excluded if \code{skew==FALSE}.
+#' For \code{skew==TRUE}, the constraint is always off.
+#' - \code{kroneckersum}: should a Kronecker sum penalty be used instead of a Kronecker product penalty?
 #'
 #' The underlying procedure is the following: First, the marginal spline design matrices and the corresponding
 #' marginal difference penalties are built. Second, the tensor product of the marginal design matrices is built
@@ -106,20 +119,20 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
   if(object$dim %% 2)
     stop("Sorry, even number of terms required.")
 
-  if(!(object$xt$bsmargin %in% c("ps", "gp2")))
-    warning("Only tested with bsmargin = 'ps' or = 'gp2', yet.
-            `gp` for instance does not work." )
-
-  #############################
+    #############################
   # set defaults if no optional
   # arguments are given
   #############################
   if (is.null(object$xt))
-    object$xt <- list(skew = FALSE)
+    object$xt <- list(bsmargin = "ps")
+  if(is.null(object$xt$bsmargin))
+    object$xt$bsmargin <- "ps" else if(!(object$xt$bsmargin %in% c("ps", "gp2")))
+      warning("Only tested with bsmargin = 'ps' or = 'gp2', yet.
+            `gp` for instance it does not work." )
   if(is.null(object$xt$skew))
     object$xt$skew <- FALSE
-  if(is.null(object$xt$bsmargin))
-    object$xt$bsmargin <- "tp"
+  if (is.null(object$xt$absorb.cons))
+    object$xt$absorb.cons <- TRUE
   if(is.null(object$xt$kroneckersum))
     object$xt$kroneckersum <- TRUE
 
@@ -201,8 +214,9 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
   # object$bs.dim <- bs.dim
   object$rank <- qr(object$S[[1]])$rank
   object$null.space.dim <- bs.dim - object$rank
-  # no sum-to-zero constraint for skew-symm bases:
-  if(object$xt$skew) object$C <- matrix(0, 0, bs.dim)
+  # no sum-to-zero constraint for skew-symm bases or if sum-to-zero contraint is turned off:
+  if(object$xt$skew || !object$xt$absorb.cons)
+    object$C <- matrix(0, 0, bs.dim)
 
   class(object) <- "symm.smooth"
   object
@@ -251,3 +265,59 @@ Predict.matrix.symm.smooth <- function (object, data) {
     X %*% Z
 
 }
+
+##########################
+# helper function forcing non-negative definite coefficients of symm.smooth
+##########################
+
+#' Force symmetric smoothers to be non-negative definite
+#'
+#' @param object \code{gam} object containing smoother of class \code{symm.smooth}.
+#' @param term label of smoother where the coefficients are to be modified. For the
+#' default \code{term=NULL} the first smoother of class \code{symm.smooth} in the model is chosen.
+#'
+#' Sets negative eigenvalues of the tensor product coefficient matrix to zero.
+#'
+#' @return a modified version of \code{object} with the coefficients of \code{term}
+#' modified produce a non-negative definite symmetric smooth.
+#' @export
+#'
+force_non_negative <- function(object, term = NULL) {
+  stopifnot(inherits(object, "gam"))
+  term <- if(is.null(term))
+    seq_along(object$smooth) else {
+      if(is.numeric(term))
+        term else
+        which(sapply(object$smooth, `[[`, "label") == term)
+    }
+  if(is.null(term))
+    stop("No existing term specified.")
+  term <- which(sapply(object$smooth[term], inherits, "symm.smooth"))
+  if(length(term) == 0)
+    stop("No smoothers of class 'symm.smooth' provided.")
+
+  sm <- object$smooth[[term[1]]]
+  stopifnot(!sm$xt$skew)
+  stopifnot(!sm$xt$absorb.cons)
+
+  # reconstruct coefficient matrix
+  coefs <- coef(object)[sm$first.para:sm$last.para]
+  if(is.null(sm$Z)) {
+    Z <- make_summation_matrix(k = sm$margin[[1]]$bs.dim)
+  } else {
+    Z <- sm$Z
+  }
+  theta <- matrix(Z %*% coefs, nrow = sqrt(nrow(Z)))
+  # remove negative eigenvalues
+  e <- eigen(theta, symmetric = TRUE)
+  pos <- which(e$values > 0)
+  theta <- if(length(pos) == 0)
+    array(0, dim = dim(theta)) else
+      crossprod(e$values[pos] * t(e$vectors[, pos]))
+  # reconstruct suitable coefficients
+  object$coefficients[sm$first.para:sm$last.para] <- qr.solve(Z, c(theta))
+  names(object$coefficients[sm$first.para:sm$last.para]) <- names(coefs)
+
+  object
+}
+

@@ -82,7 +82,7 @@ get_sp <- function(var.param) {
 #' @import mgcv nlme
 #' @rdname nlme::corMatrix.corStruct
 #'
-corMatrix.corSmooth <- function(object, covariate = getCovariate(object), ...) {
+corMatrix.corSmooth <- function(object, covariate = getCovariate(object), return.model = FALSE, ...) {
   # as in e.g. corMatrix.AR1:
   # corD <- Dim(object, if (is.list(covariate)) {
   #   if (is.null(names(covariate)))
@@ -108,7 +108,7 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), ...) {
 
   if(is.null(sp) || is.na(sp)) {
     warning("Current penalty parameter not found - going back to default specified in G.")
-    m <- gam(G = attr(object, "G"))
+    m <- gam(G = attr(object, "G"), sp = attr(object, "G")$sp)
   } else {
     m <- gam(G = attr(object, "G"), sp = sp)
   }
@@ -148,8 +148,9 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), ...) {
     k$coefficients["diagonal"] <- 0 # ensure non-negative error variance
   if(attr(object, "verbose"))
     cat("Noise variance:", k$coefficients["diagonal"])
-
-  attr(val, "cov_model") <- k
+  
+  if(return.model)
+    return(k)
 
   val <- lapply(covariate, function(x) {
     d <- expand.grid(V1 = x, V2 = x)
@@ -157,37 +158,10 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), ...) {
     matrix(predict(k, d), nrow = length(x))
   })
 
-  ## earlier version mostly without prediction on new data
-  # # obtain covariance matrices
-  # grps_ <- ordered(unlist(split(grps, grps)), levels = levels(grps))
-  # val <- split(k$fitted.values, grps_)
-  # val <- Map(function(r, L) {
-  #   val <- matrix(0, nrow = L, ncol = L)
-  #   idx <- combn(seq_len(L), 2, function(x) x[2] + L*(x[1]-1) )
-  #   idx_ <- combn(seq_len(L), 2, function(x) x[1] + L*(x[2]-1) )
-  #   val[idx] <- val[idx_] <- r
-  # }, val, lengths(covariate))
-  #
-  # # obtain/estimate variances
-  # vc <- unsplit(covariate, grps)
-  # diag(val) <- predict(k, newdata = data.frame(V1 = vc, V2 = vc))
-
-  ## no positive definiteness guarantee for the moment
-  # # restrict to positive definite part
-  # e <- eigen(val, symmetric = TRUE)
-  # npos <- sum(e$values > 0)
-  # val <- crossprod(sqrt(head(e$values, npos)) * t(e$vectors[, seq_len(npos)]))
-
-  # assume constant error variance
-  # nugget <- Map(function(r,v) r^2 - diag(v), res, val)
-  # nugget <- unlist(nugget)
-  # nugget <- mean(nugget[nugget>0])
   for(i in seq_along(val)) {
     # diag(val[[i]]) <- diag(val[[i]]) + nugget
     val[[i]] <- cov2cor(val[[i]])
   }
-  # if(any(abs(sapply(val, determinant)) < 1e-15))
-  #   browser()
 
   val
 }

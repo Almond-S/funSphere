@@ -43,6 +43,11 @@ corSmooth <- function(value = 0, form = ~1, fixed = FALSE, G, s_xt = list(), s_k
 #'
 Initialize.corSmooth <- function(object, data, ...) {
   object <- NextMethod()
+  # catch groups from Initialize.lmeStruct
+  f <- parent.frame(2)
+  if("lmeStruct" %in% f$.Class) {
+    attr(object, "grps") <- parent.frame(2)$groups
+  }
   object
 }
 
@@ -51,6 +56,7 @@ Initialize.corSmooth <- function(object, data, ...) {
 #' @rdname nlme::coef.corStruct
 #'
 coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
+  i_bims_coef.corSmooth <- 1
   if (unconstrained) {
     if (attr(object, "fixed")) {
       return(numeric(0))
@@ -77,19 +83,19 @@ get_sp <- function(var.param) {
   1/mgcv:::notExp2(var.param)
 }
 
+get_grps <- function(object) {
+  groups <- getGroupsFormula(object$reStruct)
+  
+}
+
 
 #' @export
 #' @import mgcv nlme
 #' @rdname nlme::corMatrix.corStruct
 #'
-corMatrix.corSmooth <- function(object, covariate = getCovariate(object), return.model = FALSE, ...) {
-  # as in e.g. corMatrix.AR1:
-  # corD <- Dim(object, if (is.list(covariate)) {
-  #   if (is.null(names(covariate)))
-  #     names(covariate) <- seq_along(covariate)
-  #   rep(names(covariate), lengths(covariate))
-  # }
-  # else rep(1, length(covariate)))
+corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
+                                return.model = FALSE, 
+                                parent.frame.modelStruct = !return.model, ...) {
 
   # obtain residuals
   sp <- NULL
@@ -102,6 +108,29 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), return
       if(!is.null(f$object$reStruct)) {
         sp <- get_sp(coef(f$object$reStruct))
         break
+      }
+    }
+  }
+  
+  if(parent.frame.modelStruct) {
+    # search for modelStruct object
+    lmeStr <- NULL
+    for(i in 2:4) {
+      f <- parent.frame(i)
+      if(inherits(f$object, "modelStruct")) {
+        lmeStr <- f$object 
+        break
+      }
+    }
+    
+    if(is.null(lmeStr)) {
+      warning("No modelStruct object found. Setting parent.frame.modelStruct <- FALSE.")
+      parent.frame.modelStruct <- FALSE
+    } else {
+      if(FALSE) {# coef(lmeSt) <- f$value
+      grps <- attr(lmeStr$corStruct, "grps")
+      attr(lmeStr, "lmeFit") <- nlme:::MEestimate(lmeStr, grps)
+      Fitted <- fitted(lmeStr)
       }
     }
   }
@@ -162,6 +191,30 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), return
     # diag(val[[i]]) <- diag(val[[i]]) + nugget
     val[[i]] <- cov2cor(val[[i]])
   }
+  
+  # compute factor
+  e <- lapply(val, eigen, symmetric = TRUE)
+  fac <- lapply(e, function(x) 1/sqrt(x$values) * t(x$vectors))
+  attr(fac, "logDet") <- sum(log(unlist(lapply(e, `[[`, "values"))))
+  attr(val, "factor") <- fac
 
   val
 }
+
+corFactor.corSmooth <- function(object, ...) {
+  # so far only copy of corFactor.corStruct
+  # setting corMatrix(..., parent.frame.update = FALSE)
+  if (!is.null(aux <- attr(object, "factor"))) {
+    return(aux)
+  }
+  corD <- Dim(object)
+  val <- .C(corStruct_factList, as.double(unlist(
+    corMatrix(object, parent.frame.modelStruct = FALSE))), 
+            as.integer(unlist(corD)), factor = double(corD[["sumLenSq"]]), 
+            logDet = double(1))[c("factor", "logDet")]
+  lD <- val[["logDet"]]
+  val <- val[["factor"]]
+  attr(val, "logDet") <- lD
+  val
+}
+

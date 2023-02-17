@@ -41,6 +41,8 @@ m <- gamm(weight ~ s(Time), data = dat,
           correlation = corSmooth(form = ~ Time | Plot,
                                   s_xt = list(bsmargin = "tp"),
                                   G = m0, s_m = 0, verbose = F))
+coef(m$lme$modelStruct) <- c(3,4)
+
 plot(m$gam)
 cs <- m$lme$modelStruct$corStruct
 attr(cs, "fixed") <- TRUE

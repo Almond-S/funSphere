@@ -26,14 +26,29 @@ a (skew-)symmetry constraint on the smooth's coefficients,
 which considerably reduces the number of coefficients that have to be estimated.
 }
 \details{
-By default a symmetric bivariate B-spline smooth \eqn{g} is specified,
+By default a symmetric bivariate smooth \eqn{g} is specified,
 in the sense that \eqn{g(s, t) = g(t, s)}.
 In contrast to the original implementation of the function in the package
 \code{sparseFLMM}, this implementation also works for more general smooths
 and any even number of arguments, i.e. \eqn{g(s1, s2, ..., t1, t2, ...) = g(t1, t2, ..., s1, s2, ...)}.
-By setting
-\code{s(..., bs = "symm", xt = list(skew = TRUE))}, a skew-symmetric (or anti-smmetric)
-smooth with \eqn{g(s, t) = -g(t, s)} can be specified instead.
+
+Several options can be specified via the argument \code{xt} of \code{s()} with the
+default given by
+
+\code{s(..., bs = "symm", xt = list(bsmargin = "ps", skew = FALSE, absorb.cons = TRUE, kroneckersum = TRUE))}
+
+with
+\itemize{
+\item \code{bsmargin}: the marginal basis type (the \code{bs} argument used to construct them).
+\item \code{skew}: should a skew-symmetric (or anti-symmetric) smooth with \eqn{g(s, t) = -g(t, s)}
+be specified instead of a symmetric smooth?
+\item \code{absorb.cons}: should the automatic sum-to-zero constraint be applied?
+Turning it off, no additional transformation of the design and
+penalty matrices is conducted and the obtained coefficients directly correspond
+to them. In this case, the constant intercept should be excluded if \code{skew==FALSE}.
+For \code{skew==TRUE}, the constraint is always off.
+\item \code{kroneckersum}: should a Kronecker sum penalty be used instead of a Kronecker product penalty?
+}
 
 The underlying procedure is the following: First, the marginal spline design matrices and the corresponding
 marginal difference penalties are built. Second, the tensor product of the marginal design matrices is built
@@ -63,9 +78,9 @@ world <- map_data("world")
       color = "black", fill = "lightgray", size = 0.1
     ) +
     coord_cartesian(xlim = c(-180, 180), ylim = c(-90, 90), expand = F) +
-    coord_fixed() +
-    geom_point(data = caps, aes(long, lat, col = sqrt(pop)))
-)
+    coord_fixed()
+) +
+  geom_point(data = caps, aes(long, lat, col = sqrt(pop)))
 
 
 # first fit strange symmetric 2D GP -------------------------------------
@@ -74,7 +89,8 @@ m0 <- gam(sqrt(pop) ~ s(long, lat, bs = "symm",
 predgrid <- expand.grid(long = seq(-180, 180, 10), lat = seq(-180, 180, 10))
 predgrid$pop0 <- predict(m0, predgrid)^2
 
-p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop0)), alpha = .96, show.legend = F)
+p + geom_raster(data = predgrid, aes(long, lat, fill = sqrt(pop0)), alpha = .96) +
+  scale_fill_viridis_c()
 
 pop0 <- matrix(predgrid$pop0, nrow = sqrt(nrow(predgrid)))
 all.equal(pop0, t(pop0))
@@ -99,15 +115,37 @@ m1 <- gam(sqrt(poppop) ~ s(long1, lat1, long2, lat2, bs = "symm",
                         xt = list(bsmargin = "gp2"), m = -3), data = covcaps)
 
 predgrid1 <- expand.grid(
-  long1 = seq(-180, 180, 10), lat1 = seq(-90, 90, len = 5),
-  long2 = seq(-180, 180, 10), lat2 = 0 )
-predgrid1$poppop <- predict(m1, predgrid1)^2
+  long1 = seq(-180, 180, 10), lat1 = seq(-90, 90, 5),
+  long2 = c(-90, 0), lat2 = c(-20,0) )
+predgrid2 <- predgrid1
+names(predgrid2) <- names(predgrid1)[c(3:4,1:2)]
 
-p + geom_raster(data = predgrid1,
-                aes(long1, long2,
+predgrid1$poppop <- predict(m1, predgrid1)^2
+predgrid2$poppop <- predict(m1, predgrid2)^2
+
+(p + geom_raster(data = predgrid1,
+                aes(long1, lat1,
                     fill = sqrt(poppop)),
-                alpha = .96, show.legend = F) +
-  facet_wrap(~lat1)
+                alpha = .96) +
+  scale_fill_viridis_c() +
+  facet_grid(lat2~long2, labeller = label_both)) +
+(p + geom_raster(data = predgrid2,
+                aes(long2, lat2,
+                    fill = sqrt(poppop)),
+                alpha = .96) +
+  scale_fill_viridis_c() +
+  facet_grid(lat1~long1, labeller = label_both))
+
+predgrid_sym <- expand.grid(
+  long1 = seq(-180, 180, 10), lat1 = c(-20,0),
+  long2 = seq(-180, 180, 10), lat2 = c(-20,0) )
+predgrid_sym$poppop <- predict(m1, predgrid_sym)^2
+
+ggplot(predgrid_sym, aes(long1, long2, fill = sqrt(poppop))) +
+  geom_raster() + geom_contour(aes(z = sqrt(poppop)), col = "white") +
+  scale_fill_viridis_c() +
+  facet_grid(lat1 ~ lat2, labeller = label_both) +
+  coord_fixed()
 
 predgrid_diag <- expand.grid(long1 = seq(-180, 180, 10),
                              lat1 = seq(-90, 90, 10))
@@ -118,7 +156,8 @@ predgrid_diag$poppop <- predict(m1, predgrid_diag)^2
 p + geom_raster(data = predgrid_diag,
                 aes(long1, lat1,
                     fill = sqrt(poppop)),
-                alpha = .9, show.legend = F)
+                alpha = .9) +
+  scale_fill_viridis_c()
 
 
 }
@@ -130,5 +169,5 @@ Stoecker, Pfeuffer, Steyer, Greven (2022): Elastic Full Procrustes Analysis via 
 \code{\link[mgcv]{smooth.construct}} and \code{\link[mgcv]{smoothCon}} for details on constructors
 }
 \author{
-Jona Cederbaum, Almond Stoecker
+Almond Stoecker, Jona Cederbaum
 }

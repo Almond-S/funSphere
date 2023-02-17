@@ -311,13 +311,16 @@ force_non_negative <- function(object, term = NULL) {
   # remove negative eigenvalues
   e <- eigen(theta, symmetric = TRUE)
   pos <- which(e$values > 0)
+  e$values <- e$values[pos]
+  e$vectors <- e$vectors[, pos]
   theta <- if(length(pos) == 0)
     array(0, dim = dim(theta)) else
-      crossprod(e$values[pos] * t(e$vectors[, pos]))
+      crossprod(e$values * t(e$vectors))
   # reconstruct suitable coefficients
   object$coefficients[sm$first.para:sm$last.para] <- qr.solve(Z, c(theta))
   names(object$coefficients[sm$first.para:sm$last.para]) <- names(coefs)
 
+  attr(object, "eigen(coefMat)") <- e
   object
 }
 

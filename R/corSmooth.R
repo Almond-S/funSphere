@@ -19,37 +19,21 @@
 #' @import mgcv nlme
 #' @export
 #'
-corSmooth <- function(value = 0, form = ~1, fixed = FALSE, G, s_xt = list(), s_k = -1, s_m = NA, verbose = TRUE) {
+corSmooth <- function(value = 0, working_correlation = NULL,
+                      form = formula(working_correlation), fixed = FALSE,
+                      s_xt = list(), s_k = -1, s_m = NA, verbose = TRUE) {
   if (any(value < 0)) {
     stop("penalty parameter for covariance smoothing must be non-negative")
   }
   value <- log(value)
 
-  attr(value, "formula") <- form
-  attr(value, "fixed") <- fixed
-  attr(value, "G") <- G
   attr(value, "s_args") <- list(xt = s_xt, k = s_k, m = s_m)
   attr(value, "verbose") <- verbose
   class(value) <- c("corSmooth", "corStruct")
-  value
+
+  corDynamic(value, working_correlation, form = form, fixed = fixed)
 }
 
-
-
-
-#' @export
-#' @import nlme
-#' @rdname nlme::Initialize
-#'
-Initialize.corSmooth <- function(object, data, ...) {
-  object <- NextMethod()
-  # catch groups from Initialize.lmeStruct
-  f <- parent.frame(2)
-  if("lmeStruct" %in% f$.Class) {
-    attr(object, "grps") <- parent.frame(2)$groups
-  }
-  object
-}
 
 #' @export
 #' @import nlme
@@ -85,7 +69,7 @@ get_sp <- function(var.param) {
 
 get_grps <- function(object) {
   groups <- getGroupsFormula(object$reStruct)
-  
+
 }
 
 
@@ -95,60 +79,17 @@ get_grps <- function(object) {
 #'
 corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
                                 initial.corStruct = NULL,
-                                return.model = FALSE, 
+                                return.model = FALSE,
                                 parent.frame.modelStruct = !return.model, ...) {
 
-  # obtain residuals
-  sp <- NULL
-  for(i in 2:4) {
-    f <- parent.frame(i)
-    if(is.list(f$object)) {
-      sp <- f$object$sp
-      if(!is.null(sp))
-        break
-      if(!is.null(f$object$reStruct)) {
-        sp <- get_sp(coef(f$object$reStruct))
-        break
-      }
-    }
-  }
-  
-  if(parent.frame.modelStruct) {
-    # search for modelStruct object
-    lmeStr <- NULL
-    for(i in 2:4) {
-      f <- parent.frame(i)
-      if(inherits(f$object, "modelStruct")) {
-        lmeStr <- f$object 
-        break
-      }
-    }
-    
-    if(is.null(lmeStr)) {
-      warning("No modelStruct object found. Setting parent.frame.modelStruct <- FALSE.")
-      parent.frame.modelStruct <- FALSE
-    } else {
-      if(FALSE) {# coef(lmeSt) <- f$value
-      grps <- attr(lmeStr$corStruct, "grps")
-      attr(lmeStr, "lmeFit") <- nlme:::MEestimate(lmeStr, grps)
-      Fitted <- fitted(lmeStr)
-      }
-    }
-  }
+  # get residuals
+  Residuals <- c(attr(object, "residuals")())
+  # grps <- with(attr(object, "lme_env"), grps[revOrder, , drop = FALSE])
+  grps <- getGroups(object)
 
-  if(is.null(sp) || is.na(sp)) {
-    warning("Current penalty parameter not found - going back to default specified in G.")
-    m <- gam(G = attr(object, "G"), sp = attr(object, "G")$sp)
-  } else {
-    m <- gam(G = attr(object, "G"), sp = sp)
-  }
-  if(attr(object, "verbose")) {
-    plot(m, main = paste("Smoother penalty:", sp))
-  }
+  res <- split(Residuals, grps)
 
   # build covariance data (assuming vector covariate for now)
-  grps <- getGroups(object)
-  res <- split(m$residuals, grps)
   covariate_comb <- Map(function(x, r) {
     if(length(x) < 2)
       return(NULL)
@@ -178,7 +119,7 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
     k$coefficients["diagonal"] <- 0 # ensure non-negative error variance
   if(attr(object, "verbose"))
     cat("Noise variance:", k$coefficients["diagonal"])
-  
+
   if(return.model)
     return(k)
 
@@ -192,7 +133,7 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
     # diag(val[[i]]) <- diag(val[[i]]) + nugget
     val[[i]] <- cov2cor(val[[i]])
   }
-  
+
   # compute factor
   e <- lapply(val, eigen, symmetric = TRUE)
   fac <- lapply(e, function(x) 1/sqrt(x$values) * t(x$vectors))
@@ -210,8 +151,8 @@ corFactor.corSmooth <- function(object, ...) {
   }
   corD <- Dim(object)
   val <- .C(corStruct_factList, as.double(unlist(
-    corMatrix(object, parent.frame.modelStruct = FALSE))), 
-            as.integer(unlist(corD)), factor = double(corD[["sumLenSq"]]), 
+    corMatrix(object, parent.frame.modelStruct = FALSE))),
+            as.integer(unlist(corD)), factor = double(corD[["sumLenSq"]]),
             logDet = double(1))[c("factor", "logDet")]
   lD <- val[["logDet"]]
   val <- val[["factor"]]

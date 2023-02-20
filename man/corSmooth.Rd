@@ -6,9 +6,9 @@
 \usage{
 corSmooth(
   value = 0,
-  form = ~1,
+  working_correlation = NULL,
+  form = formula(working_correlation),
   fixed = FALSE,
-  G,
   s_xt = list(),
   s_k = -1,
   s_m = NA,

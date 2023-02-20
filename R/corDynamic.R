@@ -17,14 +17,13 @@ corDynamic <- function(value = 0, working_correlation = NULL,
                        form = formula(working_correlation), fixed = FALSE) {
 
   # Prepare 'sleeping' dynamic covariance structure
-  dynamic <- value
-  attr(dynamic, "formula") <- form
-  attr(dynamic, "fixed") <- fixed
-  class(dynamic) <- c("corDynamic", "corStruct")
+  attr(value, "formula") <- form
+  attr(value, "fixed") <- fixed
+  class(value) <- c(setdiff(c("corDynamic", "corStruct"), class(value)), class(value))
 
   # ... and initially choose working correlation
   if(is.null(working_correlation)) stop("Working independence not implemented, yet.") else {
-    attr(working_correlation, "dynamic") <- dynamic
+    attr(working_correlation, "dynamic") <- value
     class(working_correlation) <- c("corDynamic_init", class(working_correlation))
     return(working_correlation)
   }

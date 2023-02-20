@@ -38,9 +38,9 @@ m0 <- gam(weight ~ s(Time), data = dat, fit = FALSE)
 plot(gam(G = m0))
 
 m <- gamm(weight ~ s(Time), data = dat,
-          correlation = corSmooth(form = ~ Time | Plot,
+          correlation = corSmooth(working_correlation = corAR1(form = ~ Time | Plot),
                                   s_xt = list(bsmargin = "tp"),
-                                  G = m0, s_m = 0, verbose = F))
+                                  s_m = 0, verbose = T))
 coef(m$lme$modelStruct) <- c(3,4)
 
 plot(m$gam)

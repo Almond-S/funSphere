@@ -4,7 +4,16 @@
 \alias{corSmooth}
 \title{Correlation structure based on covariance smoothing}
 \usage{
-corSmooth(value = 0, form = ~1, fixed = FALSE, G)
+corSmooth(
+  value = 0,
+  form = ~1,
+  fixed = FALSE,
+  G,
+  s_xt = list(),
+  s_k = -1,
+  s_m = NA,
+  verbose = TRUE
+)
 }
 \arguments{
 \item{value}{smoothing parameter for symmetric tensor-product smoother (\code{gam} smoother class \code{symm.smooth})}

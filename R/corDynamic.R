@@ -13,17 +13,22 @@
 #' @export
 #'
 #' @examples
-corDynamic <- function(value = NULL, form = formula(value), fixed = FALSE) {
+corDynamic <- function(value = 0, working_correlation = NULL,
+                       form = formula(working_correlation), fixed = FALSE) {
 
-  # Prepare 'sleeping' dynamic covariate structure
-  dynamic <- NA
+  # Prepare 'sleeping' dynamic covariance structure
+  dynamic <- value
   attr(dynamic, "formula") <- form
   attr(dynamic, "fixed") <- fixed
   class(dynamic) <- c("corDynamic", "corStruct")
 
-  attr(value, "dynamic") <- dynamic
-  class(value) <- c("corDynamic_init", class(value))
-  value
+  # ... and initially choose working correlation
+  if(is.null(working_correlation)) stop("Working independence not implemented, yet.") else {
+    attr(working_correlation, "dynamic") <- dynamic
+    class(working_correlation) <- c("corDynamic_init", class(working_correlation))
+    return(working_correlation)
+  }
+
 }
 
 
@@ -46,7 +51,7 @@ Initialize.corDynamic_init <- function(object, data, ...) {
     class(object) <- c("corDynamic_init", class(object))
 
   # Initialize also dynamic component
-  attr(object, "dynamic") <- Initialize(attr(object, "dynamic"))
+  attr(object, "dynamic") <- Initialize(attr(object, "dynamic"), data, ...)
 
   # catch lme environment
   lme_env <- parent.frame(3)
@@ -97,6 +102,7 @@ update.corDynamic_init <- function(object, data) {
   attr(object, "dynamic") <- NULL
   attr(new_object, "working_correlation") <- object
 
+  coef(new_object) <- coef(new_object)
   new_object
 }
 

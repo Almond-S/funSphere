@@ -4,7 +4,12 @@
 \alias{corDynamic}
 \title{Dynamic correlation structure}
 \usage{
-corDynamic(value = NULL, form = formula(value), fixed = FALSE)
+corDynamic(
+  value = 0,
+  working_correlation = NULL,
+  form = formula(working_correlation),
+  fixed = FALSE
+)
 }
 \arguments{
 \item{value}{a \code{corStruct} object indicating the working correlation

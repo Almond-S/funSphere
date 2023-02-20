@@ -94,6 +94,7 @@ get_grps <- function(object) {
 #' @rdname nlme::corMatrix.corStruct
 #'
 corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
+                                initial.corStruct = NULL,
                                 return.model = FALSE, 
                                 parent.frame.modelStruct = !return.model, ...) {
 

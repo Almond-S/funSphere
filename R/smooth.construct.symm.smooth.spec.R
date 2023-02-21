@@ -315,7 +315,7 @@ force_non_negative <- function(object, term = NULL) {
   e$vectors <- e$vectors[, pos]
   theta <- if(length(pos) == 0)
     array(0, dim = dim(theta)) else
-      crossprod(e$values * t(e$vectors))
+      e$vectors %*% (e$values * t(e$vectors))
   # reconstruct suitable coefficients
   object$coefficients[sm$first.para:sm$last.para] <- qr.solve(Z, c(theta))
   names(object$coefficients[sm$first.para:sm$last.para]) <- names(coefs)

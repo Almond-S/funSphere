@@ -6,9 +6,10 @@
 \usage{
 corDynamic(
   value = 0,
+  form = ~1,
+  fixed = FALSE,
   working_correlation = NULL,
-  form = formula(working_correlation),
-  fixed = FALSE
+  working_control = list()
 )
 }
 \arguments{

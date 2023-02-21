@@ -13,8 +13,8 @@
 #' @export
 #'
 #' @examples
-corDynamic <- function(value = 0, working_correlation = NULL,
-                       form = formula(working_correlation), fixed = FALSE) {
+corDynamic <- function(value = 0, form = ~1, fixed = FALSE,
+                       working_correlation = NULL, working_control = list()) {
 
   # Prepare 'sleeping' dynamic covariance structure
   attr(value, "formula") <- form
@@ -24,6 +24,11 @@ corDynamic <- function(value = 0, working_correlation = NULL,
 
   # ... and initially choose working correlation
   if(is.null(working_correlation)) stop("Working independence not implemented, yet.") else {
+    stopifnot(is.list(working_control))
+    if(!is.null(working_control$form))
+      stop("Supplied formula is also taken for working correlation and no other formula can be specified.")
+    working_control$form <- form
+    working_correlation <- do.call(working_correlation, working_control)
     attr(working_correlation, "dynamic") <- value
     class(working_correlation) <- c("corDynamic_init", class(working_correlation))
     return(working_correlation)
@@ -49,6 +54,9 @@ Initialize.corDynamic_init <- function(object, data, ...) {
   object <- NextMethod()
   if(!inherits(object, "corDynamic_init"))
     class(object) <- c("corDynamic_init", class(object))
+
+  # need to update formula for use in gamm()
+  attr(attr(object, "dynamic"), "formula") <- formula(object)
 
   # Initialize also dynamic component
   attr(object, "dynamic") <- Initialize(attr(object, "dynamic"), data, ...)
@@ -97,6 +105,11 @@ needUpdate.corDynamic_init <- function(object) {
 
 #' @export
 #' @import nlme
+#' @rdname nlme::needUpdate
+needUpdate.corDynamic <- function(object) needUpdate.corDynamic_init(object)
+
+#' @export
+#' @import nlme
 update.corDynamic_init <- function(object, data) {
   new_object <- attr(object, "dynamic")
   attr(object, "dynamic") <- NULL
@@ -110,3 +123,13 @@ update.corDynamic_init <- function(object, data) {
   new_object
 }
 
+
+#' @export
+#' @import nlme
+update.corDynamic <- function(object, data) {
+  # store residuals already (as they will be useful for basically any corDynamic)
+  attr(object, "residuals") <- attr(object, "get_residuals")()
+
+  coef(object) <- coef(object)
+  object
+}

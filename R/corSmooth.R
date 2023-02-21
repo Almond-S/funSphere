@@ -66,6 +66,13 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
   Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
   if(is.null(Residuals))
     Residuals <- c(attr(object, "get_residuals")())
+
+  # Residuals <- try(attr(object, "get_residuals")())
+  # if(inherits(Residuals, "try-error"))
+  #   Residuals <- attr(object, "residuals") else
+  #     attr(object, "residuals") <- Residuals
+  # stopifnot(!is.null(Residuals))
+
   # grps <- with(attr(object, "lme_env"), grps[revOrder, , drop = FALSE])
   grps <- getGroups(object)
 

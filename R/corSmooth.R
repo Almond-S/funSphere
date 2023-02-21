@@ -25,7 +25,7 @@ corSmooth <- function(value = 0, working_correlation = NULL,
   if (any(value < 0)) {
     stop("penalty parameter for covariance smoothing must be non-negative")
   }
-  value <- log(value)
+  value <- notLog2(value)
 
   attr(value, "s_args") <- list(xt = s_xt, k = s_k, m = s_m)
   attr(value, "verbose") <- verbose
@@ -40,7 +40,6 @@ corSmooth <- function(value = 0, working_correlation = NULL,
 #' @rdname nlme::coef.corStruct
 #'
 coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
-  i_bims_coef.corSmooth <- 1
   if (unconstrained) {
     if (attr(object, "fixed")) {
       return(numeric(0))
@@ -49,27 +48,8 @@ coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
       return(as.vector(object))
     }
   }
-  aux <- exp(as.vector(object))
-  len_sp_mean <- length(attr(object, "G")$sp)
+  aux <- notExp2(as.vector(object))
   aux
-}
-
-
-#' Extract gam smoothing paramter estimates from gamm object
-#'
-#' Internal helper function for \code{corMatrix.corSmooth}
-#'
-#' @param var.param
-#'
-#' @return vector of smoothing parameters for gam object.
-#'
-get_sp <- function(var.param) {
-  1/mgcv:::notExp2(var.param)
-}
-
-get_grps <- function(object) {
-  groups <- getGroupsFormula(object$reStruct)
-
 }
 
 
@@ -83,7 +63,9 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
                                 parent.frame.modelStruct = !return.model, ...) {
 
   # get residuals
-  Residuals <- c(attr(object, "residuals")())
+  Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
+  if(is.null(Residuals))
+    Residuals <- c(attr(object, "get_residuals")())
   # grps <- with(attr(object, "lme_env"), grps[revOrder, , drop = FALSE])
   grps <- getGroups(object)
 

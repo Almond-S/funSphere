@@ -19,7 +19,8 @@ corDynamic <- function(value = 0, working_correlation = NULL,
   # Prepare 'sleeping' dynamic covariance structure
   attr(value, "formula") <- form
   attr(value, "fixed") <- fixed
-  class(value) <- c(setdiff(c("corDynamic", "corStruct"), class(value)), class(value))
+  class(value) <- c(setdiff(class(value), c("corDynamic", "corStruct")),
+                    c("corDynamic", "corStruct"))
 
   # ... and initially choose working correlation
   if(is.null(working_correlation)) stop("Working independence not implemented, yet.") else {
@@ -76,8 +77,8 @@ Initialize.corDynamic_init <- function(object, data, ...) {
   }
 
   attr(attr(object, "dynamic"), "lme_env") <- lme_env
-  attr(attr(object, "dynamic"), "fitted") <- fitted_
-  attr(attr(object, "dynamic"), "residuals") <- residuals_
+  attr(attr(object, "dynamic"), "get_fitted") <- fitted_
+  attr(attr(object, "dynamic"), "get_residuals") <- residuals_
 
   object
 }
@@ -100,6 +101,10 @@ update.corDynamic_init <- function(object, data) {
   new_object <- attr(object, "dynamic")
   attr(object, "dynamic") <- NULL
   attr(new_object, "working_correlation") <- object
+  # ensure update iteration
+  attr(new_object, "lme_env")$oldPars[] <- Inf
+  # store residuals already (as they will be useful for basically any corDynamic)
+  attr(new_object, "residuals") <- attr(new_object, "get_residuals")()
 
   coef(new_object) <- coef(new_object)
   new_object

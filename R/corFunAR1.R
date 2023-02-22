@@ -1,7 +1,6 @@
 
 
-
-#' Correlation structure based on covariance smoothing
+#' Functional AR-1 covariance structure based on covariance smoothing
 #'
 #' @param value smoothing parameter for symmetric tensor-product smoother (\code{gam} smoother class \code{symm.smooth})
 #' @param form a one sided formula of the form ~ t, or ~ t | g,
@@ -12,16 +11,14 @@
 #' @param fixed an optional logical value indicating whether the coefficients
 #' should be allowed to vary in the optimization, or kept fixed at their initial value.
 #' Defaults to \code{FALSE}, in which case the coefficients are allowed to vary.
-#' @param G an object of class \code{gam.prefit} as returned by \code{gam(..., fit = FALSE)}
-#' containing the mean model structure.
 #'
-#' @return an object of class \code{corSmooth}, representing an covariance smoother autocorrelation structure.
+#' @return an object of class \code{corFunAR1}, representing an covariance smoother autocorrelation structure.
 #' @import mgcv nlme
 #' @export
 #'
-corSmooth <- function(value = 0, form = ~1, fixed = FALSE,
+corFunAR1 <- function(value = c(0,0), form = ~1, fixed = FALSE,
                       working_correlation = corExp,
-                      working_control = list(),
+                      working_control = working_control,
                       s_xt = list(), s_k = -1, s_m = NA, verbose = FALSE) {
   if (any(value < 0)) {
     stop("penalty parameter for covariance smoothing must be non-negative")
@@ -30,7 +27,7 @@ corSmooth <- function(value = 0, form = ~1, fixed = FALSE,
 
   attr(value, "s_args") <- list(xt = s_xt, k = s_k, m = s_m)
   attr(value, "verbose") <- verbose
-  class(value) <- c("corSmooth", "corStruct")
+  class(value) <- c("corFunAR1", "corStruct")
 
   corDynamic(value, working_correlation = working_correlation,
              working_control = working_control,
@@ -42,7 +39,7 @@ corSmooth <- function(value = 0, form = ~1, fixed = FALSE,
 #' @import nlme
 #' @rdname nlme::coef.corStruct
 #'
-coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
+coef.corFunAR1 <- function (object, unconstrained = TRUE, ...) {
   if (unconstrained) {
     if (attr(object, "fixed")) {
       return(numeric(0))
@@ -60,8 +57,10 @@ coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
 #' @import mgcv nlme
 #' @rdname nlme::corMatrix.corStruct
 #'
-corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
+corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
                                 covariance = TRUE, ...) {
+
+  browser()
 
   # get residuals
   Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
@@ -140,5 +139,4 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
 
   val
 }
-
 

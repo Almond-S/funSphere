@@ -6,7 +6,7 @@
 \usage{
 corSmooth(
   value = 0,
-  working_correlation = NULL,
+  working_correlation = corExp,
   form = formula(working_correlation),
   fixed = FALSE,
   s_xt = list(),

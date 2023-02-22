@@ -33,7 +33,7 @@ dat <- nlme::Spruce
 m0 <- gam(logSize ~ s(days), data = dat, fit = FALSE)
 plot(gam(G = m0))
 
-m <- gamm(logSize ~ s(days), data = dat,
+m <- gamm(logSize ~ s(days), data = dat, method = "REML",
           correlation = corSmooth(.1, form = ~ days | Tree,
                                   working_correlation = corAR1,
                                   s_xt = list(bsmargin = "tp")))
@@ -76,13 +76,3 @@ image(mat[[1]])
 fac <- attr(mat, "fac")[[1]]
 image(tcrossprod(solve(fac)))
 
-#
-# cs <- m$lme$modelStruct$corStruct
-# attr(cs, "fixed") <- TRUE
-# m0$sp <- m$gam$sp
-# attr(cs, "G") <- m0
-# attr(cs, "verbose") <- TRUE
-# k <- corMatrix(cs, return.model = T)
-# plot(k)
-#
-# setdiff(names(m$gam), names(m0))

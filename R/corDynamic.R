@@ -31,6 +31,8 @@ corDynamic <- function(value = 0, form = ~1, fixed = FALSE,
     working_correlation <- do.call(working_correlation, working_control)
     attr(working_correlation, "dynamic") <- value
     class(working_correlation) <- c("corDynamic_init", class(working_correlation))
+      # append(class(working_correlation), "corDynamic_init",
+      #                                    after = length(class(working_correlation))-1)
     return(working_correlation)
   }
 
@@ -51,9 +53,9 @@ corDynamic <- function(value = 0, form = ~1, fixed = FALSE,
 #' @rdname
 #'
 Initialize.corDynamic_init <- function(object, data, ...) {
-  object <- NextMethod()
-  if(!inherits(object, "corDynamic_init"))
-    class(object) <- c("corDynamic_init", class(object))
+  class(object) <- class(object)[-1]
+  object <- Initialize(object, data, ...)
+  class(object) <- c("corDynamic_init", class(object))
 
   # need to update formula for use in gamm()
   attr(attr(object, "dynamic"), "formula") <- formula(object)
@@ -133,3 +135,11 @@ update.corDynamic <- function(object, data) {
   coef(object) <- coef(object)
   object
 }
+
+
+# #' @export
+# #' @import nlme
+# corFactor.corDynamic_init <- function(object, ...) {
+#   class(object) <- setdiff(class(object), "corDynamic_init")
+#   corFactor(object, ...)
+# }

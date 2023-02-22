@@ -126,8 +126,8 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
   if (is.null(object$xt))
     object$xt <- list(bsmargin = "ps")
   if(is.null(object$xt$bsmargin))
-    object$xt$bsmargin <- "ps" else if(!(object$xt$bsmargin %in% c("ps", "gp2")))
-      warning("Only tested with bsmargin = 'ps' or = 'gp2', yet.
+    object$xt$bsmargin <- "ps" else if(!(object$xt$bsmargin %in% c("ps", "gp2", "tp")))
+      warning("Only tested with bsmargin = 'ps', = 'tp', or = 'gp2', yet.
             `gp` for instance it does not work." )
   if(is.null(object$xt$skew))
     object$xt$skew <- FALSE
@@ -154,10 +154,10 @@ smooth.construct.symm.smooth.spec <- function(object, data, knots){
                                     knots[[term[2]]]))
           stop("number of specified knots is not equal for both margins")
     }
-    if(length(knots) < object$dim) {
-      message("Some knots are not provided.
-              Knots from first marginal smoother are used also for the second.")
-    }
+    # if(length(knots) < object$dim) {
+    #   message("Some knots are not provided.
+    #           Knots from first marginal smoother are used also for the second.")
+    # }
 
     ##############################
     # build marginal design matrix

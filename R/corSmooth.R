@@ -58,69 +58,75 @@ coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
 #' @rdname nlme::corMatrix.corStruct
 #'
 corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
-                                initial.corStruct = NULL,
-                                return.model = FALSE,
-                                parent.frame.modelStruct = !return.model, ...) {
+                                covariance = TRUE, ...) {
 
   # get residuals
   Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
   if(is.null(Residuals))
     Residuals <- c(attr(object, "get_residuals")())
 
-  # Residuals <- try(attr(object, "get_residuals")())
-  # if(inherits(Residuals, "try-error"))
-  #   Residuals <- attr(object, "residuals") else
-  #     attr(object, "residuals") <- Residuals
-  # stopifnot(!is.null(Residuals))
+  # check whether models needs to be refit
+  refit <- is.null(attr(object, "model"))
+  if(!refit) {
+    oldpars <- as.vector(attr(object, "model")$smooth[[1]]$sp)
+    refit <- !(all.equal(oldpars, coef(object, unconstrained = FALSE)) == TRUE)
+  }
 
-  # grps <- with(attr(object, "lme_env"), grps[revOrder, , drop = FALSE])
-  grps <- getGroups(object)
+  if(refit) {
+    grps <- getGroups(object)
 
-  res <- split(Residuals, grps)
+    res <- split(Residuals, grps)
 
-  # build covariance data (assuming vector covariate for now)
-  covariate_comb <- Map(function(x, r) {
-    if(length(x) < 2)
-      return(NULL)
-    d <- as.data.frame(t(combn(x, 2)))
-    d$residuals2 <- combn(r, 2, prod)
-    d$diagonal <- 0
-    d <- rbind(d, data.frame(V1 = x, V2 = x, residuals2 = r^2, diagonal = 1))
-    d
-  }, covariate, res)
-  covariate_comb <- do.call(rbind, covariate_comb)
+    # build covariance data (assuming vector covariate for now)
+    covariate_comb <- Map(function(x, r) {
+      if(length(x) < 2)
+        return(NULL)
+      d <- as.data.frame(t(combn(x, 2)))
+      d$residuals2 <- combn(r, 2, prod)
+      d$diagonal <- 0
+      d <- rbind(d, data.frame(V1 = x, V2 = x, residuals2 = r^2, diagonal = 1))
+      d
+    }, covariate, res)
+    covariate_comb <- do.call(rbind, covariate_comb)
 
-  # fit covariate model
-  args <- as.list(attr(object, "s_args"))
-  args$xt <- as.list(args$xt)
-  args$xt$absorb.cons <- FALSE
-  k <- gam(residuals2 ~ 0 +
-             s(V1, V2, bs = "symm", xt = args$xt, k = args$k, m = args$m) + diagonal,
-           data = covariate_comb,
-           sp = coef(object, unconstrained = FALSE))
-  if(attr(object, "verbose"))
-    plot(k, asp = 1, main = paste("Smoother penalty:", k$sp))
-  k <- force_non_negative(k)
-  if(attr(object, "verbose"))
-    cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
+    # fit covariate model
+    args <- as.list(attr(object, "s_args"))
+    args$xt <- as.list(args$xt)
+    args$xt$absorb.cons <- FALSE
+    k <- gam(residuals2 ~ 0 +
+               s(V1, V2, bs = "symm", xt = args$xt, k = args$k, m = args$m) + diagonal,
+             data = covariate_comb,
+             sp = coef(object, unconstrained = FALSE))
+    if(attr(object, "verbose"))
+      plot(k, asp = 1, main = paste("Smoother penalty:", k$smooth[[1]]$sp))
+    k <- force_non_negative(k)
+    if(attr(object, "verbose"))
+      cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
 
-  if(coef(k)["diagonal"] < 0)
-    k$coefficients["diagonal"] <- 0 # ensure non-negative error variance
-  if(attr(object, "verbose"))
-    cat("Noise variance:", k$coefficients["diagonal"])
+    if(coef(k)["diagonal"] < 0)
+      k$coefficients["diagonal"] <- 0 # ensure non-negative error variance
+    if(attr(object, "verbose"))
+      cat(" --- Noise variance:", k$coefficients["diagonal"], "\n")
 
-  if(return.model)
-    return(k)
+    # store model object
+    f <- attr(object, "lme_env")
+    if(!is.null(f$lmeSt)) {
+      attr(f$lmeSt$corStruct, "model") <- k
+    }
+  }
 
   val <- lapply(covariate, function(x) {
     d <- expand.grid(V1 = x, V2 = x)
     d$diagonal <- as.numeric(d$V1 == d$V2)
-    matrix(predict(k, d), nrow = length(x))
+    matrix(predict(
+      if(refit) k else attr(object, "model"),
+      d), nrow = length(x))
   })
 
-  for(i in seq_along(val)) {
-    # diag(val[[i]]) <- diag(val[[i]]) + nugget
-    val[[i]] <- cov2cor(val[[i]])
+  if(!covariance) {
+    for(i in seq_along(val)) {
+      val[[i]] <- cov2cor(val[[i]])
+    }
   }
 
   # compute factor
@@ -132,20 +138,4 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
   val
 }
 
-corFactor.corSmooth <- function(object, ...) {
-  # so far only copy of corFactor.corStruct
-  # setting corMatrix(..., parent.frame.update = FALSE)
-  if (!is.null(aux <- attr(object, "factor"))) {
-    return(aux)
-  }
-  corD <- Dim(object)
-  val <- .C(corStruct_factList, as.double(unlist(
-    corMatrix(object, parent.frame.modelStruct = FALSE))),
-            as.integer(unlist(corD)), factor = double(corD[["sumLenSq"]]),
-            logDet = double(1))[c("factor", "logDet")]
-  lD <- val[["logDet"]]
-  val <- val[["factor"]]
-  attr(val, "logDet") <- lD
-  val
-}
 

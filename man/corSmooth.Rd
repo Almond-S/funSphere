@@ -6,13 +6,14 @@
 \usage{
 corSmooth(
   value = 0,
-  working_correlation = corExp,
-  form = formula(working_correlation),
+  form = ~1,
   fixed = FALSE,
+  working_correlation = corExp,
+  working_control = list(),
   s_xt = list(),
   s_k = -1,
   s_m = NA,
-  verbose = TRUE
+  verbose = FALSE
 )
 }
 \arguments{

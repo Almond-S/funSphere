@@ -76,9 +76,10 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
   }
 
   if(refit) {
-    grps <- getGroups(object)
-
-    res <- split(Residuals, grps)
+    if(!is.list(Residuals)) {
+      grps <- getGroups(object)
+      Residuals <- split(Residuals, grps)
+    }
 
     # build covariance data (assuming vector covariate for now)
     covariate_comb <- Map(function(x, r) {
@@ -89,7 +90,7 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
       d$diagonal <- 0
       d <- rbind(d, data.frame(V1 = x, V2 = x, residuals2 = r^2, diagonal = 1))
       d
-    }, covariate, res)
+    }, covariate, Residuals)
     covariate_comb <- do.call(rbind, covariate_comb)
 
     # fit covariate model

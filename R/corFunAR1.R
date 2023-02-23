@@ -18,7 +18,7 @@
 #'
 corFunAR1 <- function(value = c(0,0), form = ~1, fixed = FALSE,
                       working_correlation = corExp,
-                      working_control = working_control,
+                      working_control = list(),
                       s_xt = list(), s_k = -1, s_m = NA, verbose = FALSE) {
   if (any(value < 0)) {
     stop("penalty parameter for covariance smoothing must be non-negative")
@@ -52,6 +52,67 @@ coef.corFunAR1 <- function (object, unconstrained = TRUE, ...) {
   aux
 }
 
+# #' @export
+# #' @import nlme
+# #'
+# Initialize.corFunAR1 <- function(object, data, ...) {
+#   object <- NextMethod()
+#   browser()
+#   response <- getResponse(object, data)
+# }
+
+
+# getResponse.corFunAR1 <- function(object, form = formula(object), data, ...) {
+#
+#   # Along the lines of getCovariate.corStruct -- only response formula instead
+#   # hence, variable names like covar and covForm are not changed
+#
+#   if (!missing(form)) {
+#     form <- formula(object)
+#     warning("cannot change 'form'")
+#   }
+#
+#   if (is.null(covar <- attr(object, "response"))) {
+#     if (missing(data)) {
+#       stop("need data to determine response of \"corStruct\" object")
+#     }
+#     covForm <- getResponseFormula(form)
+#     # for covariance smoothing add also response to formula
+#     grps <- if (!is.null(getGroupsFormula(form)))
+#       getGroups(object, data = data)
+#     if (length(all.vars(covForm)) > 0) {
+#       if (is.null(grps)) {
+#         covar <- get_all_vars(formula = covForm, data = data)
+#       }
+#       else {
+#         if (all(all.vars(covForm) == sapply(splitFormula(covForm,
+#                                                          "+"), function(el) deparse(el[[2]])))) {
+#           covar <- split(get_all_vars(data = data, formula = covForm),
+#                          grps)
+#         }
+#         else {
+#           covar <- lapply(split(data, grps), get_all_vars,
+#                           formula = covForm)
+#         }
+#       }
+#     }
+#     else {
+#       if (is.null(grps)) {
+#         covar <- 1:nrow(data)
+#       }
+#       else {
+#         covar <- lapply(split(grps, grps), function(x) seq_along(x))
+#       }
+#     }
+#     if (!is.null(grps)) {
+#       covar <- as.list(covar)
+#     }
+#   }
+#
+#   covar
+# }
+
+
 
 #' @export
 #' @import mgcv nlme
@@ -75,29 +136,36 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
   }
 
   if(refit) {
-    grps <- getGroups(object)
-
-    res <- split(Residuals, grps)
+    if(!is.list(Residuals)) {
+      grps <- getGroups(object)
+      Residuals <- split(Residuals, grps)
+    }
 
     # build covariance data (assuming vector covariate for now)
     covariate_comb <- Map(function(x, r) {
-      if(length(x) < 2)
+      if(nrow(x) < 2)
         return(NULL)
-      d <- as.data.frame(t(combn(x, 2)))
+      idx <- combn(seq_len(nrow(x)), 2)
+      d <- x[idx[1,], ]
+      d[paste0(names(x), "_")] <- x[idx[2, ], ]
       d$residuals2 <- combn(r, 2, prod)
       d$diagonal <- 0
-      d <- rbind(d, data.frame(V1 = x, V2 = x, residuals2 = r^2, diagonal = 1))
-      d
-    }, covariate, res)
+      x[paste0(names(x), "_")] <- x
+      x$residuals2 <- r^2
+      x$diagonal <- 1
+      rbind(d, x)
+    }, covariate, Residuals)
     covariate_comb <- do.call(rbind, covariate_comb)
 
     # fit covariate model
     args <- as.list(attr(object, "s_args"))
     args$xt <- as.list(args$xt)
     args$xt$absorb.cons <- FALSE
-    k <- gam(residuals2 ~ 0 +
-               s(V1, V2, bs = "symm", xt = args$xt, k = args$k, m = args$m) + diagonal,
-             data = covariate_comb,
+    kform <- as.formula(paste("residuals2 ~ 0 + s(",
+                              paste(names(covariate[[1]]), collapse = ","), ",",
+                              paste(paste0(names(covariate[[1]]), sep = "_"), collapse = ","),
+                              ", bs = 'symm', xt = args$xt, k = args$k, m = args$m) + diagonal"))
+    k <- gam(kform, data = covariate_comb,
              sp = coef(object, unconstrained = FALSE))
     if(attr(object, "verbose"))
       plot(k, asp = 1, main = paste("Smoother penalty:", k$smooth[[1]]$sp))

@@ -75,6 +75,9 @@ Initialize.corFunAR1 <- function(object, data, ...) {
 corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
                                 covariance = TRUE, ...) {
 
+  if(!covariance) stop("Currently only covariance matrices and no correlation
+                       matrices are computed.")
+
   # get residuals
   Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
   if(is.null(Residuals))
@@ -234,23 +237,42 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         x, dims)
   }, val1, cov_dims)
 
-
-  if(!covariance) {
-    for(i in seq_along(val)) {
-      for(j in seq_along(val[[i]])) {
-        val[[i]][[j]] <- cov2cor(val[[i]][[j]])
-      }
+  # extend to overlapping blocks
+  for(i in seq_along(val1)) {
+    for(j in seq_along(val1[[i]])) {
+      val1[[i]][[j]] <- rbind(
+        cbind(val0[[i]][[j]], val1[[i]][[j]]),
+        cbind(t(val1[[i]][[j]]), val0[[i]][[j+1]])
+        )
     }
   }
 
   # compute factor
-  e <- lapply(val, lapply, eigen, symmetric = TRUE)
-  fac <- lapply(e, function(x) {
+  e0 <- lapply(val0, lapply, eigen, symmetric = TRUE)
+  fac0 <- lapply(e0, function(x) {
     facl <- lapply(x, function(x) 1/sqrt(x$values) * t(x$vectors))
-    as.matrix(bdiag(facl))
   })
-  attr(fac, "logDet") <- sum(log(unlist(lapply(e, lapply, `[[`, "values"))))
+  e1 <- lapply(val1, lapply, eigen, symmetric = TRUE)
+  fac1 <- lapply(e1, function(x) {
+    facl <- lapply(x, function(x) 1/sqrt(x$values) * t(x$vectors))
+  })
+
+  fac <- Map(function(f0, f1) {
+    di <- sapply(f0, nrow)
+    m <- matrix(0, nrow = sum(di), ncol = sum(di))
+    m[seq_len(di[1] + di[2]), seq_len(di[1] + di[2])] <- f1[[1]]
+    cdi <- cumsum(di)
+    for(i in 2:length(f1)) {
+      idx1 <- (cdi[i-1]+1):cdi[i+1]
+      m[idx1, idx1] <- m[idx1, idx1] + f1[[i]]
+      if(i < length(f1)) {
+        idx0 <- (cdi[i-1]+1):cdi[i]
+        m[idx0, idx0] <- m[idx0, idx0] - f0[[i+1]]
+      }
+    }
+  }, fac0, fac1)
   attr(val, "factor") <- fac
+  attr(fac, "logDet") <- sum(log(unlist(lapply(e, lapply, `[[`, "values"))))
 
   # partly extend covmats
   val <- lapply(val, function(x) as.matrix(bdiag(x)))

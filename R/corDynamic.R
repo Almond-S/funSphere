@@ -65,33 +65,6 @@ Initialize.corDynamic_init <- function(object, data, ...) {
   # Initialize also dynamic component
   attr(object, "dynamic") <- Initialize(attr(object, "dynamic"), data, ...)
 
-  # catch lme environment
-  lme_env <- parent.frame(3)
-  er <- is.null(lme_env$.Method)
-  if(!er) er <- lme_env$.Method != "lme.formula"
-  if(er) stop("corDynamic hast to be initialized from within lme.formula.")
-
-  fitted_ <- function(level = lme_env$Q) {
-    # copied from nlme:::lme.formula
-    ## fitted.values and residuals (in original order)
-    Fitted <- matrix(fitted(lme_env$lmeSt, level = level,
-                     conLin = if (lme_env$decomp) oldConLin else
-                       attr(lme_env$lmeSt, "conLin")), ncol = length(level))[
-                         lme_env$revOrder, , drop = FALSE]
-    rownames(Fitted) <- lme_env$origOrder
-    Fitted
-  }
-
-  residuals_ <- function(level = lme_env$Q) {
-    Fitted <- fitted_(level)
-    Resid <- lme_env$y[lme_env$revOrder] - Fitted
-    Resid
-  }
-
-  attr(attr(object, "dynamic"), "lme_env") <- lme_env
-  attr(attr(object, "dynamic"), "get_fitted") <- fitted_
-  attr(attr(object, "dynamic"), "get_residuals") <- residuals_
-
   object
 }
 
@@ -106,12 +79,18 @@ Initialize.corDynamic <- function(object, data, ...) {
   object <- NextMethod()
 
   # get first residuals (or other required data)
-  attr(object, "residuals") <- getResponse(object, data = data)
+  if(length(formula(object)) == 3)
+    attr(object, "residuals") <- getResponse(object, data = data)
 
   # catch lme environment
   lme_env <- parent.frame(3)
   er <- is.null(lme_env$.Method)
   if(!er) er <- lme_env$.Method != "lme.formula"
+  if(er) {
+    lme_env <- parent.frame(4)
+    er <- is.null(lme_env$.Method)
+    if(!er) er <- lme_env$.Method != "lme.formula"
+  }
   if(er) {
     warning("corDynamic seems not to be executed from within lme.formula().
                  No environment and functionality for dynamic updates available.")

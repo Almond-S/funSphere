@@ -83,13 +83,17 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
 
     # build covariance data (assuming vector covariate for now)
     covariate_comb <- Map(function(x, r) {
-      if(length(x) < 2)
+      if(nrow(x) < 2)
         return(NULL)
-      d <- as.data.frame(t(combn(x, 2)))
+      idx <- combn(seq_len(nrow(x)), 2)
+      d <- x[idx[1,], , drop = FALSE]
+      d[paste0(names(x), "_")] <- x[idx[2, ], , drop = FALSE]
       d$residuals2 <- combn(r, 2, prod)
       d$diagonal <- 0
-      d <- rbind(d, data.frame(V1 = x, V2 = x, residuals2 = r^2, diagonal = 1))
-      d
+      x[paste0(names(x), "_")] <- x
+      x$residuals2 <- r^2
+      x$diagonal <- 1
+      rbind(d, x)
     }, covariate, Residuals)
     covariate_comb <- do.call(rbind, covariate_comb)
 
@@ -97,9 +101,11 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
     args <- as.list(attr(object, "s_args"))
     args$xt <- as.list(args$xt)
     args$xt$absorb.cons <- FALSE
-    k <- gam(residuals2 ~ 0 +
-               s(V1, V2, bs = "symm", xt = args$xt, k = args$k, m = args$m) + diagonal,
-             data = covariate_comb,
+    kform <- as.formula(paste("residuals2 ~ 0 + s(",
+                              paste(names(covariate[[1]]), collapse = ","), ",",
+                              paste(paste0(names(covariate[[1]]), sep = "_"), collapse = ","),
+                              ", bs = 'symm', xt = args$xt, k = args$k, m = args$m) + diagonal"))
+    k <- gam(kform, data = covariate_comb,
              sp = coef(object, unconstrained = FALSE))
     if(attr(object, "verbose"))
       plot(k, asp = 1, main = paste("Smoother penalty:", k$smooth[[1]]$sp))
@@ -120,11 +126,14 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
   }
 
   val <- lapply(covariate, function(x) {
-    d <- expand.grid(V1 = x, V2 = x)
-    d$diagonal <- as.numeric(d$V1 == d$V2)
+    idx <- seq_len(nrow(x))
+    idx <- expand.grid(V1 = idx, V2 = idx)
+    d <- cbind(x[idx$V1, , drop = FALSE],
+               structure(x[idx$V2, , drop = FALSE], names = paste0(names(x), "_")))
+    d$diagonal <- as.numeric(idx$V1 == idx$V2)
     matrix(predict(
       if(refit) k else attr(object, "model"),
-      d), nrow = length(x))
+      d), nrow = nrow(x))
   })
 
   if(!covariance) {

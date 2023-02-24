@@ -121,8 +121,6 @@ coef.corFunAR1 <- function (object, unconstrained = TRUE, ...) {
 corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
                                 covariance = TRUE, ...) {
 
-  browser()
-
   # get residuals
   Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
   if(is.null(Residuals))
@@ -186,11 +184,14 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
   }
 
   val <- lapply(covariate, function(x) {
-    d <- expand.grid(V1 = x, V2 = x)
-    d$diagonal <- as.numeric(d$V1 == d$V2)
+    idx <- seq_len(nrow(x))
+    idx <- expand.grid(V1 = idx, V2 = idx)
+    d <- cbind(x[idx$V1, ],
+               structure(x[idx$V2, ], names = paste0(names(x), "_")))
+    d$diagonal <- as.numeric(idx$V1 == idx$V2)
     matrix(predict(
       if(refit) k else attr(object, "model"),
-      d), nrow = length(x))
+      d), nrow = nrow(x))
   })
 
   if(!covariance) {

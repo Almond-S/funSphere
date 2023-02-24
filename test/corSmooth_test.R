@@ -70,9 +70,9 @@ e <- eigen(mat[[1]])
 e$values
 
 mat_ <- e$vectors %*% (e$values * t(e$vectors))
-image(mat_)
-image(mat[[1]])
+image(mat_, asp = 1)
+image(mat[[1]], asp = 1)
 
 fac <- attr(mat, "fac")[[1]]
-image(tcrossprod(solve(fac)))
+image(tcrossprod(solve(fac)), asp = 1)
 

@@ -40,7 +40,7 @@ corSmooth <- function(value = 0, form = ~1, fixed = FALSE,
 
 #' @export
 #' @import nlme
-#' @rdname nlme::coef.corStruct
+# #' @rdname nlme::coef.corStruct
 #'
 coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
   if (unconstrained) {
@@ -58,9 +58,9 @@ coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
 
 #' @export
 #' @import mgcv nlme
-#' @rdname nlme::corMatrix.corStruct
+# #' @rdname nlme::corMatrix.corStruct
 #'
-corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
+corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr = TRUE,
                                 covariance = TRUE, ...) {
 
   # get residuals
@@ -142,12 +142,18 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object),
     }
   }
 
-  # compute factor
+  # otherwise compute factor:
   e <- lapply(val, eigen, symmetric = TRUE)
+  # fac <- unlist(lapply(e, function(x) c(1/sqrt(x$values) * t(x$vectors))))
   fac <- lapply(e, function(x) 1/sqrt(x$values) * t(x$vectors))
-  attr(fac, "logDet") <- sum(log(unlist(lapply(e, `[[`, "values"))))
-  attr(val, "factor") <- fac
+  # log determinant of factor
+  lD <- -1/2*sum(log(unlist(lapply(e, `[[`, "values"))))
+  attr(fac, "logDet") <- lD
 
+  if(!corr)
+    return(fac)
+
+  attr(val, "factor") <- fac
   val
 }
 

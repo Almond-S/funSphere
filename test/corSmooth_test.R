@@ -11,12 +11,12 @@ dat <- nlme::Earthquake
 set.seed(304)
 dat$distance <- dat$distance + rnorm(nrow(dat), sd = .01*sd(dat$distance))
 
-m0 <- gam(accel ~ s(distance), data = dat, fit = FALSE)
-plot(gam(G = m0))
+m0 <- gam(accel ~ distance + s(distance), data = dat)
+plot(m0)
 
 m <- gamm(accel ~ s(distance), data = dat,
-          correlation = corSmooth(c(.1), form = ~ distance | Quake,
-                                  working_correlation = corExp,
+          correlation = corSmooth(.1, form = ~ distance | Quake,
+                                  working_correlation = corGaus,
                                   s_xt = list(bsmargin = "tp"),
                                   s_m = c(0,2)))
 
@@ -52,7 +52,7 @@ m0 <- gam(weight ~ s(Time), data = dat, fit = FALSE)
 
 m <- gamm(weight ~ s(Time), data = dat, method = "REML",
           correlation = corSmooth(value = 0.01, form =  ~ Time | Plot,
-                                    working_correlation = corGaus,
+                                    working_correlation = corCAR1,
                                   s_xt = list(bsmargin = "tp"),
                                   s_m = c(0,2), verbose = T))
 m1 <- gamm(weight ~ s(Time), data = dat,
@@ -74,5 +74,4 @@ image(mat_, asp = 1)
 image(mat[[1]], asp = 1)
 
 fac <- attr(mat, "fac")[[1]]
-image(tcrossprod(solve(fac)), asp = 1)
 

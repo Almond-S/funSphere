@@ -15,7 +15,8 @@ covar <- getCovariate(cs, data = dat)
 resp <- getResponse(cs, data = dat)
 cs <- Initialize(cs, dat)
 
-FunMat <- corMatrix(cs)
-image(Matrix(FunMat$F))
+FunMat <- corMatrix(cs, corr = F)
+Matrix::image(FunMat[[1]])
+
 
 

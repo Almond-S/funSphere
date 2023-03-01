@@ -37,7 +37,7 @@ corFunAR1 <- function(value = c(0,0), form = ~1, fixed = FALSE,
 
 #' @export
 #' @import nlme
-#' @rdname nlme::coef.corStruct
+# #' @rdname nlme::coef.corStruct
 #'
 coef.corFunAR1 <- function (object, unconstrained = TRUE, ...) {
   if (unconstrained) {
@@ -70,14 +70,15 @@ Initialize.corFunAR1 <- function(object, data, ...) {
 
 #' @export
 #' @import mgcv nlme Matrix
-#' @rdname nlme::corMatrix.corStruct
+# #' @rdname nlme::corMatrix.corStruct
 #'
 corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
                                 corr = TRUE, # named to be consistent with other corMatrix methods
                                 # -> if corr = FALSE, cholesky factor of precision is computed
                                 covariance = TRUE, ...) {
 
-  if(!covariance) stop("Currently only covariance matrices and no correlation
+  if(!covariance)
+    stop("Currently only covariance matrices and no correlation
                        matrices are computed.")
 
   # get residuals
@@ -145,8 +146,14 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     if(attr(object, "verbose"))
       cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
 
-    if(coef(k)["diagonal"] < 0)
-      k$coefficients["diagonal"] <- 0 # ensure non-negative error variance
+    if(coef(k)["diagonal"] < 0) {
+      # do Manuel Pfeuffer's positivity trick
+      # to ensure non-negative error variance
+      thisdiag <- which(names(coef(k)) == "diagonal")
+      sddiag <- sqrt(k$Vp[thisdiag, thisdiag])
+      # set to mean of normal truncated at 0
+      k$coefficients["diagonal"] <- k$coefficients["diagonal"] + 2*dnorm(0)*sddiag
+    }
     if(attr(object, "verbose"))
       cat(" --- Noise variance:", k$coefficients["diagonal"], "\n")
 
@@ -227,9 +234,6 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
 
 
   # obtain fitted values ---------
-
-  browser()
-
   covariate_comb$fitted.values <- k1$fitted.values
   val1 <- split(covariate_comb,
                 paste(covariate_comb$grps, covariate_comb$grps_))
@@ -249,9 +253,6 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     }
   }
 
-  # update cov_dims
-  cov_dims <- lapply(val1, lapply, dim)
-
   ## compute factor and determinant
   # => to do so: compute precision matrix
 
@@ -268,17 +269,24 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     }
     forceSymmetric(M)
   }, grp_ids, cov_dims)
-
+browser()
   # so far covariance/correlation matrix not returned
-  val <- NA
+  fac <- lapply(precision, function(x) {
+    ret <- try(as.matrix(chol(x)))
+    if(!inherits(ret, "try-error"))
 
-  fac <- lapply(precision, Cholesky)
-  attr(fac, "logDet") <- lapply(precision, function(x) {
+    })
+  attr(fac, "logDet") <- sum(sapply(precision, function(x) {
     dt <- det(x)
-    if(dt == 0) 0 else -log(dt) # compute log determinant of covariance matrix
-  })
-  attr(val, "factor") <- fac
+    if(dt == 0) 0 else log(dt) # compute log determinant of covariance matrix
+  }))
 
+  if(!corr)
+    return(fac)
+
+  # otherwise return NA with fac as attribute since covariance computation is not implemented, yet.
+  val <- NA
+  attr(val, "factor") <- fac
   val
 }
 

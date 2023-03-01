@@ -11,8 +11,6 @@
 #'
 #' @import nlme
 #' @export
-#'
-#' @examples
 corDynamic <- function(value = 0, form = ~1, fixed = FALSE,
                        working_correlation = NULL, working_control = list()) {
   # Prepare 'sleeping' dynamic covariance structure
@@ -51,9 +49,8 @@ corDynamic <- function(value = 0, form = ~1, fixed = FALSE,
 #' \code{lme.formula} call executing it and to model residuals computed from
 #' the last call.
 #'
-#' @export
 #' @import nlme
-#'
+#' @export
 Initialize.corDynamic_init <- function(object, data, ...) {
   class(object) <- class(object)[-1]
   object <- Initialize(object, data, ...)
@@ -68,9 +65,8 @@ Initialize.corDynamic_init <- function(object, data, ...) {
   object
 }
 
-#' @export
 #' @import nlme
-#'
+#' @export
 Initialize.corDynamic <- function(object, data, ...) {
   # which_corDyn <- which(class(object) == "corDynamic")
   # class(object) <- class(object)[-which_corDyn]
@@ -123,9 +119,9 @@ Initialize.corDynamic <- function(object, data, ...) {
 }
 
 
-#' @export
 #' @import nlme
-#' @rdname nlme::needUpdate
+# #' @rdname nlme::needUpdate
+#' @export
 needUpdate.corDynamic_init <- function(object) {
   f <- parent.frame(3)
   if(is.null(f$.Generic))
@@ -135,13 +131,13 @@ needUpdate.corDynamic_init <- function(object) {
   TRUE
 }
 
-#' @export
 #' @import nlme
-#' @rdname nlme::needUpdate
+# #' @rdname nlme::needUpdate
+#' @export
 needUpdate.corDynamic <- function(object) needUpdate.corDynamic_init(object)
 
-#' @export
 #' @import nlme
+#' @export
 update.corDynamic_init <- function(object, data) {
   new_object <- attr(object, "dynamic")
   attr(object, "dynamic") <- NULL
@@ -174,9 +170,8 @@ update.corDynamic <- function(object, data) {
 #   corFactor(object, ...)
 # }
 
-#' @export
 #' @import nlme
-#'
+#' @export
 getCovariate.corDynamic <-
   getCovariate.corDynamic_init <- function(object, form = formula(object), data, ...) {
 
@@ -235,16 +230,14 @@ getCovariate.corDynamic <-
 # }
 
 
-#' @export
 #' @import nlme
-#'
+#' @export
 getResponse <- function(object, form = formula(object), data, ...) {
   UseMethod("getResponse")
 }
 
-#' @export
 #' @import nlme
-#'
+#' @export
 getResponse.corDynamic <- function(object, form = formula(object), data, ...) {
 
   # Copy of getCovariate.corStruct replacing getCovariateFormula by getResponseFormula
@@ -292,5 +285,14 @@ getResponse.corDynamic <- function(object, form = formula(object), data, ...) {
   }
 
   covar
+}
+
+# Bridge very strange behavior of corMatrix.corSpatial
+
+#' @import nlme
+#' @export
+corMatrix.corDynamic_init <- function(object, ...) {
+  class(object) <- setdiff(class(object), "corDynamic_init")
+  corMatrix(object, ...)
 }
 

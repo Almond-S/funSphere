@@ -17,3 +17,5 @@ cs <- Initialize(cs, dat)
 
 FunMat <- corMatrix(cs)
 image(Matrix(FunMat$F))
+
+

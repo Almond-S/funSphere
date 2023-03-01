@@ -13,7 +13,7 @@
 #' Defaults to \code{FALSE}, in which case the coefficients are allowed to vary.
 #'
 #' @return an object of class \code{corFunAR1}, representing an covariance smoother autocorrelation structure.
-#' @import mgcv nlme
+#' @import mgcv nlme Matrix MASS
 #' @export
 #'
 corFunAR1 <- function(value = c(0,0), form = ~1, fixed = FALSE,
@@ -73,6 +73,8 @@ Initialize.corFunAR1 <- function(object, data, ...) {
 #' @rdname nlme::corMatrix.corStruct
 #'
 corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
+                                corr = TRUE, # named to be consistent with other corMatrix methods
+                                # -> if corr = FALSE, cholesky factor of precision is computed
                                 covariance = TRUE, ...) {
 
   if(!covariance) stop("Currently only covariance matrices and no correlation
@@ -247,35 +249,35 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     }
   }
 
-  # compute factor
-  e0 <- lapply(val0, lapply, eigen, symmetric = TRUE)
-  fac0 <- lapply(e0, function(x) {
-    facl <- lapply(x, function(x) 1/sqrt(x$values) * t(x$vectors))
-  })
-  e1 <- lapply(val1, lapply, eigen, symmetric = TRUE)
-  fac1 <- lapply(e1, function(x) {
-    facl <- lapply(x, function(x) 1/sqrt(x$values) * t(x$vectors))
-  })
+  # update cov_dims
+  cov_dims <- lapply(val1, lapply, dim)
 
-  fac <- Map(function(f0, f1) {
-    di <- sapply(f0, nrow)
-    m <- matrix(0, nrow = sum(di), ncol = sum(di))
-    m[seq_len(di[1] + di[2]), seq_len(di[1] + di[2])] <- f1[[1]]
-    cdi <- cumsum(di)
-    for(i in 2:length(f1)) {
-      idx1 <- (cdi[i-1]+1):cdi[i+1]
-      m[idx1, idx1] <- m[idx1, idx1] + f1[[i]]
-      if(i < length(f1)) {
-        idx0 <- (cdi[i-1]+1):cdi[i]
-        m[idx0, idx0] <- m[idx0, idx0] - f0[[i+1]]
-      }
+  ## compute factor and determinant
+  # => to do so: compute precision matrix
+
+  grp_ids <- structure(seq_along(val1), names = names(val1))
+  precision <- Map(function(id, dim) {
+    dims0 <- sapply(val0[[id]], nrow)
+    M <- bandSparse(n = sum(dims0), k = 0:max(dims0), diagonals = lapply(sum(dims0) - 0:max(dims0), rep, x = 0), symmetric = TRUE)
+    this <- cumsum(c(1,dims0))
+    for(i in seq_along(val1[[id]])) {
+      M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] <- M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] +
+        ginv(val1[[id]][[i]])
+      if(i > 0)
+        M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] <- M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] +  ginv(val0[[id]][[i]])
     }
-  }, fac0, fac1)
-  attr(val, "factor") <- fac
-  attr(fac, "logDet") <- sum(log(unlist(lapply(e, lapply, `[[`, "values"))))
+    forceSymmetric(M)
+  }, grp_ids, cov_dims)
 
-  # partly extend covmats
-  val <- lapply(val, function(x) as.matrix(bdiag(x)))
+  # so far covariance/correlation matrix not returned
+  val <- NA
+
+  fac <- lapply(precision, Cholesky)
+  attr(fac, "logDet") <- lapply(precision, function(x) {
+    dt <- det(x)
+    if(dt == 0) 0 else -log(dt) # compute log determinant of covariance matrix
+  })
+  attr(val, "factor") <- fac
 
   val
 }

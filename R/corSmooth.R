@@ -20,7 +20,7 @@
 #' @export
 #'
 corSmooth <- function(value = 0, form = ~1, fixed = FALSE,
-                      working_correlation = corExp,
+                      working_correlation = corCAR1,
                       working_control = list(),
                       s_xt = list(), s_k = -1, s_m = NA, verbose = FALSE) {
   if (any(value < 0)) {
@@ -113,8 +113,15 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
     if(attr(object, "verbose"))
       cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
 
-    if(coef(k)["diagonal"] < 0)
-      k$coefficients["diagonal"] <- 0 # ensure non-negative error variance
+    if(coef(k)["diagonal"] < 0) {
+      # do Manuel Pfeuffer's positivity trick
+      # to ensure non-negative error variance
+      thisdiag <- which(names(coef(k)) == "diagonal")
+      sddiag <- sqrt(k$Vp[thisdiag, thisdiag])
+      # set to mean of normal truncated at 0
+      k$coefficients["diagonal"] <- k$coefficients["diagonal"] + 2*dnorm(0)*sddiag
+    }
+
     if(attr(object, "verbose"))
       cat(" --- Noise variance:", k$coefficients["diagonal"], "\n")
 
@@ -142,6 +149,9 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
     }
   }
 
+  if(corr)
+    return(val)
+
   # otherwise compute factor:
   e <- lapply(val, eigen, symmetric = TRUE)
   # fac <- unlist(lapply(e, function(x) c(1/sqrt(x$values) * t(x$vectors))))
@@ -150,11 +160,16 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
   lD <- -1/2*sum(log(unlist(lapply(e, `[[`, "values"))))
   attr(fac, "logDet") <- lD
 
-  if(!corr)
-    return(fac)
-
-  attr(val, "factor") <- fac
-  val
+  fac
 }
 
+
+#' @import nlme
+#' @export
+corFactor.corSmooth <- function(object, ...) {
+  if(!is.null(aux <- attr(object, "factor"))) {
+    return(aux)
+  }
+  corMatrix(object, ..., corr = FALSE)
+}
 

@@ -11,7 +11,7 @@ dat <- nlme::Earthquake
 set.seed(304)
 dat$distance <- dat$distance + rnorm(nrow(dat), sd = .01*sd(dat$distance))
 
-m0 <- gam(accel ~ distance + s(distance), data = dat)
+m0 <- gam(accel ~ s(distance), data = dat)
 plot(m0)
 
 m <- gamm(accel ~ s(distance), data = dat,
@@ -21,7 +21,7 @@ m <- gamm(accel ~ s(distance), data = dat,
                                   s_m = c(0,2)))
 
 {opar <- par(mfrow = c(1,2))
-  plot(gam(G = m0), main = "gam")
+  plot(m0, main = "gam")
   plot(m$gam, main = "gamm: corSmooth")
   par(opar)}
 

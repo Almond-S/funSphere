@@ -8,7 +8,7 @@ corSmooth(
   value = 0,
   form = ~1,
   fixed = FALSE,
-  working_correlation = corExp,
+  working_correlation = corCAR1,
   working_control = list(),
   s_xt = list(),
   s_k = -1,

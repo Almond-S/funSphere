@@ -16,7 +16,15 @@ resp <- getResponse(cs, data = dat)
 cs <- Initialize(cs, dat)
 
 FunMat <- corMatrix(cs, corr = F)
-Matrix::image(FunMat[[1]])
+Matrix::image(crossprod(FunMat[[1]]))
+persp(crossprod(FunMat[[1]]))
 
+# try model fit
 
-
+m <- gamm(weight ~ s(Time), data = dat, method = "REML",
+          correlation = corFunAR1(value = .01,
+                                  form = ~ Time + Year | Variety,
+                                  working_correlation = corCAR1,
+                                  s_xt = list(bsmargin = "tp"),
+                                  s_m = c(0,2), verbose = F))
+plot(m$gam)

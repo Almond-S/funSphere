@@ -134,7 +134,14 @@ needUpdate.corDynamic_init <- function(object) {
 #' @import nlme
 # #' @rdname nlme::needUpdate
 #' @export
-needUpdate.corDynamic <- function(object) needUpdate.corDynamic_init(object)
+needUpdate.corDynamic <- function(object) {
+  f <- parent.frame(3)
+  if(is.null(f$.Generic))
+    return(TRUE)
+  if(f$.Generic == "Initialize")
+    return(FALSE)
+  TRUE
+}
 
 #' @import nlme
 #' @export

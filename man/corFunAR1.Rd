@@ -5,10 +5,10 @@
 \title{Functional AR-1 covariance structure based on covariance smoothing}
 \usage{
 corFunAR1(
-  value = c(0, 0),
+  value = 0,
   form = ~1,
   fixed = FALSE,
-  working_correlation = corExp,
+  working_correlation = corCAR1,
   working_control = list(),
   s_xt = list(),
   s_k = -1,

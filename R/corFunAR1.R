@@ -75,7 +75,8 @@ Initialize.corFunAR1 <- function(object, data, ...) {
 corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
                                 corr = TRUE, # named to be consistent with other corMatrix methods
                                 # -> if corr = FALSE, cholesky factor of precision is computed
-                                covariance = TRUE, ...) {
+                                covariance = TRUE,
+                                orthodat = NULL, ...) {
 
   if(!covariance)
     stop("Currently only covariance matrices and no correlation
@@ -156,8 +157,10 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         # fit model
         k <- gam(G = k_pre, sp = head(coef(object, unconstrained = FALSE), length(covnames)) )
 
-        if(attr(object, "verbose"))
-          plot(k, asp = 1, main = paste("Lag 0 Smoother penalty:", k$smooth[[1]]$sp))
+        if(attr(object, "verbose")) {
+          opar <- par(mfrow = c(1,2))
+          plot(k, asp = 1, main = paste("Lag 0 Smoother penalty:", k$full.sp))
+        }
         k <- force_non_negative(k)
         if(attr(object, "verbose"))
           cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
@@ -212,13 +215,15 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         cov_dims <- lapply(covariate_comb, attr, "dims")
         covariate_comb <- do.call(rbind, covariate_comb)
 
+        args$k <- k_pre$smooth[[1]]$margin[[1]]$df
+
           # fit lag 1 covariance model
           kform <- as.formula(paste("residuals2 ~ 0 + ti(",
                                     paste(c(covnames, covnames_), collapse = ","),
                                     ", bs = args$xt$bsmargin,
                               k = args$k, m = args$m, mc = c(FALSE, FALSE))"))
 
-          if(is.null(attr(object, "model_prefit"))) {
+          if(is.null(attr(object, "model_prefit_lag1"))) {
             k_pre1 <- gam(kform, data = covariate_comb, fit = FALSE)
             # store prefit object
             f <- attr(object, "lme_env")
@@ -234,11 +239,10 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
           k1 <- gam(G = k_pre1,
                    sp = rep(tail(coef(object, unconstrained = FALSE), length(covnames)), 2) )
 
-
-          # k1 <- gam(kform, data = covariate_comb,
-          #           sp = rep(tail(coef(object, unconstrained = FALSE), length(covnames)), 2))
-          if(attr(object, "verbose"))
+          if(attr(object, "verbose")) {
             plot(k1, asp = 1)
+            par(opar)
+          }
 
           # store model object
           f <- attr(object, "lme_env")
@@ -247,7 +251,7 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
           }
   } else {
 
-    # covariate_comb (withoug residuals) is also required when not fitting
+    # covariate_comb (without residuals) is also required when not fitting
 
     make_lag1_data <- function(x1, x2) {
       dims <- c(nrow(x1), nrow(x2))
@@ -286,25 +290,37 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
       covs <- split(covs, covs[[ARtime]])
       lapply(covs, Predict.matrix, object = k$smooth[[1]]$margin[[1]])
     })
+
+    # basis orthogonalization
+    if(is.null(orthodat)) {
+      X <- do.call(rbind, lapply(marginalDesign, do.call, what = rbind))
+    } else {
+      X <- predict(k$smooth[[1]]$margin[[1]], newdata = orthodat)
+    }
+    R <- qr.R(qr(X))
+    attr(marginalDesign, "orthogonalizeDesign") <- solve(R)
+    attr(marginalDesign, "orthogonalizeDesign_inv") <- R
+
     # store marginal design matrix
     f <- attr(object, "lme_env")
     if(!is.null(f$lmeSt))
       attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
+    # orthogonalize marginal Desgin
+
   } else {
     marginalDesign <- attr(object, "marginalDesign")
   }
 
-  get_lag0_fit <- function(X) {
-    # extract design and coefficient matrices
-    coefs <- if(refit) k$coefficients else attr(object, "model_lag0")$coefficients
-    Z <- if(refit) k$smooth[[1]]$Z else attr(object, "model_lag0")$smooth[[1]]$Z
-    coefs <- list(smooth = Z%*%coefs[-1], nugget = coefs[1])
+  # extract design and coefficient matrices
+  c0 <- if(refit) k$coefficients else attr(object, "model_lag0")$coefficients
+  Z <- if(refit) k$smooth[[1]]$Z else attr(object, "model_lag0")$smooth[[1]]$Z
+  c0 <- list(smooth = Z%*%c0[-1], nugget = c0[1])
+  c0$smooth <- matrix(c0$smooth, ncol = sqrt(length(c0$smooth)))
 
+  get_lag0_fit <- function(X) {
     # return prediction
-    pred <- X %*%
-      tcrossprod( matrix(coefs$smooth, ncol = sqrt(length(coefs$smooth))),
-                  X)
-    diag(pred) <- diag(pred) + coefs$nugget
+    pred <- X %*% tcrossprod(c0$smooth, X)
+    diag(pred) <- diag(pred) + c0$nugget
     pred
   }
 
@@ -342,22 +358,24 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
   ## compute factor and determinant
   # => to do so: compute precision matrix
 
+  # compute inverse variance matrices
+  my_solve <- function(x) {
+    x_ <- try(solve(x, silent = TRUE))
+    if(inherits(x_, "try-error"))
+      x_ <- ginv(x)
+    x_
+  }
+
   grp_ids <- structure(seq_along(val1), names = names(val1))
   precision <- Map(function(id) {
     dims0 <- sapply(val0[[id]], nrow)
     M <- bandSparse(n = sum(dims0), k = 0:max(dims0), diagonals = lapply(sum(dims0) - 0:max(dims0), rep, x = 0), symmetric = TRUE)
     this <- cumsum(c(1,dims0))
     for(i in seq_along(val01[[id]])) {
-      val01_ <- try(solve(val01[[id]][[i]]), silent = TRUE)
-      if(inherits(val01_, "try-error"))
-        val01_ <- ginv(val01[[id]][[i]])
-      M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] <- M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] + val01_
+      M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] <- M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] + my_solve(val01[[id]][[i]])
 
       if(i > 0) {
-        val0_ <- try(solve(val0[[id]][[i]]), silent = TRUE)
-        if(inherits(val01_, "try-error"))
-          val0_ <- ginv(val0[[id]][[i]])
-        M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] <- M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] +  val0_
+        M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] <- M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] +  my_solve(val0[[id]][[i]])
       }
     }
     forceSymmetric(M)
@@ -381,14 +399,23 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
   if(!corr)
     return(fac)
 
+  browser()
+
+  maxARtime <- max(sapply(val0, length))
+  c1 <- if(refit) matrix(k1$coefficients, ncol = sqrt(length(k1$coefficients))) else
+    matrix(attr(object, "model_lag1")$coefficients,
+           ncol = sqrt(length(attr(object, "model_lag1")$coefficients)))
+  # CONTINUE HERE!!!!
+
   # otherwise complete covariance matrix.
-  complete_cov <- function(v0, v1) {
-    dims0 <- sapply(v0, nrow)
+  complete_cov <- function(v0, v1, Xs) {
+    dims0 <- sapply(Xs, nrow)
     # make matrix of matrices
     dimslong <- expand.grid(nr = dims0, nc = dims0)
     M <- matrix(
       apply(dimslong, 1, function(x) matrix(nrow = x[1], ncol = x[2]), simplify = FALSE),
       nrow = length(dims0), ncol = length(dims0))
+    # fill matrix
     diag(M) <- v0
     for(i in seq_along(v1))
       M[[i,i+1]] <- v1[[i]]#; M[[i+1,i]] <- t(v1[[i]])

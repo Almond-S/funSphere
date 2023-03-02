@@ -26,5 +26,6 @@ m <- gamm(weight ~ s(Time), data = dat, method = "REML",
                                   form = ~ Time + Year | Variety,
                                   working_correlation = corCAR1,
                                   s_xt = list(bsmargin = "tp"),
-                                  s_m = c(0,2), verbose = F))
+                                  s_m = c(0,2), verbose = T),
+          control = lmeControl(maxIter = 1, returnObject = T))
 plot(m$gam)

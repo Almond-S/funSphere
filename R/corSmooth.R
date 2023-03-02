@@ -105,10 +105,23 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
                               paste(names(covariate[[1]]), collapse = ","), ",",
                               paste(paste0(names(covariate[[1]]), sep = "_"), collapse = ","),
                               ", bs = 'symm', xt = args$xt, k = args$k, m = args$m) + diagonal"))
-    k <- gam(kform, data = covariate_comb,
-             sp = coef(object, unconstrained = FALSE))
+    if(is.null(attr(object, "model_prefit"))) {
+      k_pre <- gam(kform, data = covariate_comb, fit = FALSE)
+      # store prefit object
+      f <- attr(object, "lme_env")
+      if(!is.null(f$lmeSt))
+        attr(f$lmeSt$corStruct, "model_prefit") <- k_pre
+      } else {
+      k_pre <- attr(object, "model_prefit")
+      # update response
+      k_pre$y <- covariate_comb$residuals2
+      }
+
+    # fit model
+    k <- gam(G = k_pre, sp = coef(object, unconstrained = FALSE) )
+
     if(attr(object, "verbose"))
-      plot(k, asp = 1, main = paste("Smoother penalty:", k$smooth[[1]]$sp))
+      plot(k, asp = 1, main = paste("Smoother penalty:", k$full.sp))
     k <- force_non_negative(k)
     if(attr(object, "verbose"))
       cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
@@ -132,15 +145,29 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
     }
   }
 
-  val <- lapply(covariate, function(x) {
-    idx <- seq_len(nrow(x))
-    idx <- expand.grid(V1 = idx, V2 = idx)
-    d <- cbind(x[idx$V1, , drop = FALSE],
-               structure(x[idx$V2, , drop = FALSE], names = paste0(names(x), "_")))
-    d$diagonal <- as.numeric(idx$V1 == idx$V2)
-    matrix(predict(
-      if(refit) k else attr(object, "model"),
-      d), nrow = nrow(x))
+  # get appropriate marginal bases
+  if(is.null(attr(object, "marginalDesign"))) {
+    marginalDesign <- lapply(covariate, Predict.matrix, object = k$smooth[[1]]$margin[[1]])
+    # store marginal design matrix
+    f <- attr(object, "lme_env")
+    if(!is.null(f$lmeSt))
+      attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
+  } else {
+    marginalDesign <- attr(object, "marginalDesign")
+  }
+
+  val <- lapply(marginalDesign, function(X) {
+    # extract design and coefficient matrices
+    coefs <- if(refit) k$coefficients else attr(object, "model")$coefficients
+    Z <- if(refit) k$smooth[[1]]$Z else attr(object, "model")$smooth[[1]]$Z
+    coefs <- list(smooth = Z%*%coefs[-1], nugget = coefs[1])
+
+    # return prediction
+    pred <- X %*%
+      tcrossprod( matrix(coefs$smooth, ncol = sqrt(length(coefs$smooth))),
+                  X)
+    diag(pred) <- diag(pred) + coefs$nugget
+    pred
   })
 
   if(!covariance) {

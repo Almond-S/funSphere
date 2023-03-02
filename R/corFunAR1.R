@@ -140,8 +140,22 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         kform <- as.formula(paste("residuals2 ~ 0 + s(",
                                   paste(c(covnames, covnames_), collapse = ","),
                                   ", bs = 'symm', xt = args$xt, k = args$k, m = args$m) + diagonal"))
-        k <- gam(kform, data = covariate_comb,
-                 sp = head(coef(object, unconstrained = FALSE), length(covnames)))
+
+        if(is.null(attr(object, "model_prefit_lag0"))) {
+          k_pre <- gam(kform, data = covariate_comb, fit = FALSE)
+          # store prefit object
+          f <- attr(object, "lme_env")
+          if(!is.null(f$lmeSt))
+            attr(f$lmeSt$corStruct, "model_prefit_lag0") <- k_pre
+        } else {
+          k_pre <- attr(object, "model_prefit_lag0")
+          # update response
+          k_pre$y <- covariate_comb$residuals2
+        }
+
+        # fit model
+        k <- gam(G = k_pre, sp = head(coef(object, unconstrained = FALSE), length(covnames)) )
+
         if(attr(object, "verbose"))
           plot(k, asp = 1, main = paste("Lag 0 Smoother penalty:", k$smooth[[1]]$sp))
         k <- force_non_negative(k)
@@ -162,7 +176,7 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         # store model object
         f <- attr(object, "lme_env")
         if(!is.null(f$lmeSt)) {
-          attr(f$lmeSt$corStruct, "model") <- k
+          attr(f$lmeSt$corStruct, "model_lag0") <- k
         }
 
         ## then estimate lag 1 covariance analogously -------------------------------
@@ -198,15 +212,33 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         cov_dims <- lapply(covariate_comb, attr, "dims")
         covariate_comb <- do.call(rbind, covariate_comb)
 
-          # fit lag 0 covariance model
+          # fit lag 1 covariance model
           kform <- as.formula(paste("residuals2 ~ 0 + ti(",
                                     paste(c(covnames, covnames_), collapse = ","),
                                     ", bs = args$xt$bsmargin,
                               k = args$k, m = args$m, mc = c(FALSE, FALSE))"))
-          k1 <- gam(kform, data = covariate_comb,
-                    sp = rep(tail(coef(object, unconstrained = FALSE), length(covnames)), 2))
+
+          if(is.null(attr(object, "model_prefit"))) {
+            k_pre1 <- gam(kform, data = covariate_comb, fit = FALSE)
+            # store prefit object
+            f <- attr(object, "lme_env")
+            if(!is.null(f$lmeSt))
+              attr(f$lmeSt$corStruct, "model_prefit_lag1") <- k_pre1
+          } else {
+            k_pre1 <- attr(object, "model_prefit_lag1")
+            # update response
+            k_pre1$y <- covariate_comb$residuals2
+          }
+
+          # fit model
+          k1 <- gam(G = k_pre1,
+                   sp = rep(tail(coef(object, unconstrained = FALSE), length(covnames)), 2) )
+
+
+          # k1 <- gam(kform, data = covariate_comb,
+          #           sp = rep(tail(coef(object, unconstrained = FALSE), length(covnames)), 2))
           if(attr(object, "verbose"))
-            plot(k1, asp = 1, main = paste("Lag 1 Smoother penalty:", k1$smooth[[1]]$sp))
+            plot(k1, asp = 1)
 
           # store model object
           f <- attr(object, "lme_env")
@@ -248,19 +280,35 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
 
   # obtain fitted values for lag 0 --------------
 
-  get_lag0_fit <- function(x) {
-    idx <- seq_len(nrow(x))
-    idx <- expand.grid(V1 = idx, V2 = idx)
-    d <- cbind(x[idx$V1, , drop = FALSE],
-               structure(x[idx$V2, , drop = FALSE], names = covnames_))
-    d$diagonal <- as.numeric(idx$V1 == idx$V2)
-    matrix(predict(
-      if(refit) k else attr(object, "model"),
-      d), nrow = nrow(x))
+  # get appropriate marginal bases
+  if(is.null(attr(object, "marginalDesign"))) {
+    marginalDesign <- lapply(covariate, function(covs) {
+      covs <- split(covs, covs[[ARtime]])
+      lapply(covs, Predict.matrix, object = k$smooth[[1]]$margin[[1]])
+    })
+    # store marginal design matrix
+    f <- attr(object, "lme_env")
+    if(!is.null(f$lmeSt))
+      attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
+  } else {
+    marginalDesign <- attr(object, "marginalDesign")
   }
 
-  val0 <- lapply(covariate, function(x) {
-    x <- split(x[covnames], x[[ARtime]])
+  get_lag0_fit <- function(X) {
+    # extract design and coefficient matrices
+    coefs <- if(refit) k$coefficients else attr(object, "model_lag0")$coefficients
+    Z <- if(refit) k$smooth[[1]]$Z else attr(object, "model_lag0")$smooth[[1]]$Z
+    coefs <- list(smooth = Z%*%coefs[-1], nugget = coefs[1])
+
+    # return prediction
+    pred <- X %*%
+      tcrossprod( matrix(coefs$smooth, ncol = sqrt(length(coefs$smooth))),
+                  X)
+    diag(pred) <- diag(pred) + coefs$nugget
+    pred
+  }
+
+  val0 <- lapply(marginalDesign, function(x) {
     # return inner list of covariance matrices
     lapply(x, get_lag0_fit)
   })
@@ -332,7 +380,7 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
 
   if(!corr)
     return(fac)
-browser()
+
   # otherwise complete covariance matrix.
   complete_cov <- function(v0, v1) {
     dims0 <- sapply(v0, nrow)

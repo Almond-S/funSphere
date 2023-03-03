@@ -203,13 +203,19 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
           f <- attr(object, "lme_env")
           if(!is.null(f$lmeSt))
             attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
-          # orthogonalize marginal Desgin
-
         } else {
           marginalDesign <- attr(object, "marginalDesign")
         }
 
         ## then estimate lag 1 covariance analogously -------------------------------
+
+        ### manually fit lag 1 covariance model using the basis of the lag 0 model k
+        # get marginal design matrices of positive definite subspace of k
+        D <- attr(k, "eigen(coefMat)")$vectors
+        # Xm <- lapply(marginalDesign, lapply, function(x) x%*%D)
+        Xm <- lapply(marginalDesign, lapply, `%*%`, D)
+
+        # old verion non-manually:
 
         make_lag1_data <- function(x1, x2, r1, r2) {
           dims <- c(nrow(x1), nrow(x2))
@@ -246,12 +252,7 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
 
 browser()
 
-        ### manually fit lag 1 covariance model using the basis of the lag 0 model
-        # get marginal design matrices
-        Xmar
-
-
-          # fit lag 1 covariance model
+        # fit lag 1 covariance model
           kform <- as.formula(paste("residuals2 ~ 0 + ti(",
                                     paste(c(covnames, covnames_), collapse = ","),
                                     ", bs = args$xt$bsmargin,

@@ -182,6 +182,33 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
           attr(f$lmeSt$corStruct, "model_lag0") <- k
         }
 
+      # get appropriate marginal design matrices needed for several purposes later
+        if(is.null(attr(object, "marginalDesign"))) {
+          marginalDesign <- lapply(covariate, function(covs) {
+            covs <- split(covs, covs[[ARtime]])
+            lapply(covs, Predict.matrix, object = k$smooth[[1]]$margin[[1]])
+          })
+
+          # basis orthogonalization
+          if(is.null(orthodat)) {
+            X <- do.call(rbind, lapply(marginalDesign, do.call, what = rbind))
+          } else {
+            X <- predict(k$smooth[[1]]$margin[[1]], newdata = orthodat)
+          }
+          R <- qr.R(qr(X))
+          attr(marginalDesign, "orthogonalizeDesign") <- solve(R)
+          attr(marginalDesign, "orthogonalizeDesign_inv") <- R
+
+          # store marginal design matrix
+          f <- attr(object, "lme_env")
+          if(!is.null(f$lmeSt))
+            attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
+          # orthogonalize marginal Desgin
+
+        } else {
+          marginalDesign <- attr(object, "marginalDesign")
+        }
+
         ## then estimate lag 1 covariance analogously -------------------------------
 
         make_lag1_data <- function(x1, x2, r1, r2) {
@@ -216,6 +243,13 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         covariate_comb <- do.call(rbind, covariate_comb)
 
         args$k <- k_pre$smooth[[1]]$margin[[1]]$df
+
+browser()
+
+        ### manually fit lag 1 covariance model using the basis of the lag 0 model
+        # get marginal design matrices
+        Xmar
+
 
           # fit lag 1 covariance model
           kform <- as.formula(paste("residuals2 ~ 0 + ti(",
@@ -283,33 +317,6 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
   }
 
   # obtain fitted values for lag 0 --------------
-
-  # get appropriate marginal bases
-  if(is.null(attr(object, "marginalDesign"))) {
-    marginalDesign <- lapply(covariate, function(covs) {
-      covs <- split(covs, covs[[ARtime]])
-      lapply(covs, Predict.matrix, object = k$smooth[[1]]$margin[[1]])
-    })
-
-    # basis orthogonalization
-    if(is.null(orthodat)) {
-      X <- do.call(rbind, lapply(marginalDesign, do.call, what = rbind))
-    } else {
-      X <- predict(k$smooth[[1]]$margin[[1]], newdata = orthodat)
-    }
-    R <- qr.R(qr(X))
-    attr(marginalDesign, "orthogonalizeDesign") <- solve(R)
-    attr(marginalDesign, "orthogonalizeDesign_inv") <- R
-
-    # store marginal design matrix
-    f <- attr(object, "lme_env")
-    if(!is.null(f$lmeSt))
-      attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
-    # orthogonalize marginal Desgin
-
-  } else {
-    marginalDesign <- attr(object, "marginalDesign")
-  }
 
   # extract design and coefficient matrices
   c0 <- if(refit) k$coefficients else attr(object, "model_lag0")$coefficients
@@ -399,15 +406,30 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
   if(!corr)
     return(fac)
 
-  browser()
+  # otherwise complete covariance matrix
 
-  maxARtime <- max(sapply(val0, length))
   c1 <- if(refit) matrix(k1$coefficients, ncol = sqrt(length(k1$coefficients))) else
     matrix(attr(object, "model_lag1")$coefficients,
            ncol = sqrt(length(attr(object, "model_lag1")$coefficients)))
-  # CONTINUE HERE!!!!
+  # get coefficients of orthogonal basis
+  A0_ <- my_solve(attr(marginalDesign, "orthogonalizeDesign_inv") %*% tcrossprod(
+    c0$smooth, attr(marginalDesign, "orthogonalizeDesign_inv") ))
 
-  # otherwise complete covariance matrix.
+  A <- list()
+  A1_right <- tcrossprod( c1, attr(marginalDesign, "orthogonalizeDesign_inv") )
+  # A1_left:
+  A[[1]] <- attr(marginalDesign, "orthogonalizeDesign_inv") %*% c1
+  Alpha <- A0_ %*% A1_right
+
+  maxARtime <- max(sapply(val0, length))
+  i <- 2
+  while(i < maxARtime) {
+    A[[i]] <- A[[i-1]] %*% Alpha
+    i <- i+1
+  }
+
+  A[[1]] <- c1
+
   complete_cov <- function(v0, v1, Xs) {
     dims0 <- sapply(Xs, nrow)
     # make matrix of matrices
@@ -417,16 +439,19 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
       nrow = length(dims0), ncol = length(dims0))
     # fill matrix
     diag(M) <- v0
-    for(i in seq_along(v1))
-      M[[i,i+1]] <- v1[[i]]#; M[[i+1,i]] <- t(v1[[i]])
+    for(i in seq_along(v1)) {
+      M[[i,i+1]] <- v1[[i]]; M[[i+1,i]] <- t(v1[[i]]) }
     k <- 2 #start at second off-diagonal
     while(k < ncol(M)) {
-      for(i in seq_len(ncol(M)-k))
-        M[[i,i+k]] <- M[[i,i+k-1]] %*% solveM[[i-1,i+k-1]] %*% M[[i-1,i+k]]
+      for(i in seq_len(ncol(M)-k)) {
+        M[[i, i+k]][] <- Xs[[i]] %*% tcrossprod( A[[k]], Xs[[i+k]] )
+        M[[i+k, i]][] <- t(M[[i, i+k]])
+      }
+      k <- k+1
     }
+    do.call(rbind, lapply(1:nrow(M), function(i) do.call(cbind, M[i, ])))
   }
-  val <- Map(complete_cov, val0, val1)
-
+  val <- Map(complete_cov, val0, val1, marginalDesign)
 
   attr(val, "factor") <- fac
   val

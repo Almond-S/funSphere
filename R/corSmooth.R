@@ -16,7 +16,7 @@
 #' containing the mean model structure.
 #'
 #' @return an object of class \code{corSmooth}, representing an covariance smoother autocorrelation structure.
-#' @import mgcv nlme
+#' @import mgcv nlme Matrix
 #' @export
 #'
 corSmooth <- function(value = 0, form = ~1, fixed = FALSE,
@@ -86,8 +86,8 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
   }
 
   if(refit) {
+    grps <- getGroups(object)
     if(!is.list(Residuals)) {
-      grps <- getGroups(object)
       Residuals <- split(Residuals, grps)
     }
     idx <- split(seq_along(grps), grps)
@@ -96,20 +96,15 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
     X <- lapply(idx, function(id) attr(object, "smooth")$X[id, , drop = FALSE])
     S <- attr(object, "penalty")[[1]]
     # TODO: diagonals still need to be subtracted
-    XxX_XxX <- array(0, dim = dim(S))
     XxX_YxY <- matrix(0, nrow = nrow(XxX_XxX))
     # TODO: exclude design matrices with only one row when removing diagonals?
     for(i in seq_along(X)) {
-      RT <- row_tensor_square(X[[i]])
-      ONE <- matrix(1, nrow = nrow(X[[i]]), ncol = nrow(X[[i]]))
-      # matrix obtained via array model has to be reorganized:
-      XxX_XxX_ <- array(crossprod(RT, ONE %*% RT), dim = rep(ncol(X[[i]]), 4))
-      XxX_XxX <- XxX_XxX + matrix(aperm(XxX_XxX_, c(1,3,2,4)), ncol = ncol(RT))
       X_Y <- crossprod(X[[i]], as.matrix(Residuals[[i]]))
       XxX_YxY <- XxX_YxY + kronecker(X_Y, X_Y)
     }
 
-    coefs <- solve( XxX_XxX + coef(object, unconstrained = FALSE) * S, c(XxX_YxY))
+    # compute cofficients
+    coefs <- solve( attr(object, "XxX_XxX") + coef(object, unconstrained = FALSE) * S, c(XxX_YxY))
 
     browser()
 
@@ -244,7 +239,47 @@ Initialize.corSmooth <- function(object, data, ...) {
   sm <- smooth.construct(sm, data, attr(object, "knots"))
 
   attr(object, "smooth") <- sm
-  attr(object, "penalty") <- tensor.prod.penalties(rep(sm$S, 2))
+  pls <- list()
+  attr(object, "penalty") <- S <- tensor.prod.penalties(rep(sm$S, 2))[[1]]
+
+  grps <- getGroups(object)
+  idx <- split(seq_along(grps), grps)
+
+  # compute design matrix innter product using linear array model (Currie et al. 2006)
+  X <- lapply(idx, function(id) sm$X[id, , drop = FALSE])
+  # TODO: diagonals still need to be subtracted
+  XxX_XxX <- array(0, dim = dim(S))
+  # TODO: exclude design matrices with only one row when removing diagonals?
+  for(i in seq_along(X)) {
+    RT <- row_tensor_square(X[[i]])
+    ONE <- matrix(1, nrow = nrow(X[[i]]), ncol = nrow(X[[i]]))
+    # matrix obtained via array model has to be reorganized:
+    XxX_XxX_ <- array(crossprod(RT, ONE %*% RT), dim = rep(ncol(X[[i]]), 4))
+    XxX_XxX <- XxX_XxX + matrix(aperm(XxX_XxX_, c(1,3,2,4)), ncol = ncol(RT))
+  }
+
+  # use Demmler-Reinsch type form to speed up computation
+
+  # first decomposition of design product
+  eX <- eigen(XxX_XxX)
+  # left cholesky-type factor
+  L <- sweep(eX$vectors, 2, 1/sqrt(eX$values), `*`)
+  # adjust penalty
+  K <- crossprod( L, S ) %*% L
+
+  # then decomposition of adjusted penalty
+  eK <- eigen(K)
+  # update side factor
+  L <- L %*% eK$vectors
+
+  attr(object, "demmler_reinsch") <- function(sp, Xy) {
+    sweep(L, 2, 1 + sp*eK$values, `/`) %*% crossprod(L, Xy)
+  }
+
+browser()
+
+  attr(object, "XxX_XxX") <- XxX_XxX
+
 
   object
 }

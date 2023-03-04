@@ -1,6 +1,7 @@
 
 # library(funSphere)
 library(mgcv)
+library(tictoc)
 
 
 # small example -----------------------------------------------------------
@@ -14,11 +15,13 @@ dat$distance <- dat$distance + rnorm(nrow(dat), sd = .01*sd(dat$distance))
 m0 <- gam(accel ~ s(distance), data = dat)
 plot(m0)
 
+tic()
 m <- gamm(accel ~ s(distance), data = dat,
-          correlation = corSmooth(.1, form = ~ s(distance, bs = "tp", k = 5) | Quake,
-                                  working_correlation = corGaus,
-                                  s_xt = list(bsmargin = "tp"),
-                                  s_m = c(0,2)))
+          correlation = corSmooth(.1,
+                                  form = ~ s(distance, bs = "tp", k = 5, m = c(0,2)) | Quake,
+                                  working_correlation = corGaus))
+toc()
+# old version of corSmooth, fitted on laptop: 14.09 sec
 
 {opar <- par(mfrow = c(1,2))
   plot(m0, main = "gam")

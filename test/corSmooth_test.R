@@ -15,7 +15,7 @@ m0 <- gam(accel ~ s(distance), data = dat)
 plot(m0)
 
 m <- gamm(accel ~ s(distance), data = dat,
-          correlation = corSmooth(.1, form = ~ distance | Quake,
+          correlation = corSmooth(.1, form = ~ s(distance, bs = "tp", k = 5) | Quake,
                                   working_correlation = corGaus,
                                   s_xt = list(bsmargin = "tp"),
                                   s_m = c(0,2)))

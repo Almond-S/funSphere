@@ -67,6 +67,9 @@ Initialize.corFunAR1 <- function(object, data, ...) {
 }
 
 
+row_tensor_square <- function(x) x[, rep(1:ncol(x), each = ncol(x))] *
+  x[, rep(1:ncol(x), ncol(x))]
+
 
 #' @export
 #' @import mgcv nlme Matrix
@@ -208,14 +211,39 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         }
 
         ## then estimate lag 1 covariance analogously -------------------------------
-
+browser()
         ### manually fit lag 1 covariance model using the basis of the lag 0 model k
+        ## => use linear array model (Currie et al, 2006)
         # get marginal design matrices of positive definite subspace of k
         D <- attr(k, "eigen(coefMat)")$vectors
         # Xm <- lapply(marginalDesign, lapply, function(x) x%*%D)
-        Xm <- lapply(marginalDesign, lapply, `%*%`, D)
+        X <- lapply(marginalDesign, lapply, `%*%`, D)
+        S <- crossprod(D, k$smooth[[1]]$margin[[1]]$S[[1]]) %*% D
+        S <- tensor.prod.penalties(list(S, S))
+        sp <- numeric(2)
+        sp[] <- tail(coef(object, unconstrained = FALSE), length(covnames))
+        S <- sp[1]*S[[1]] + sp[2]*S[[2]]
+        # compute relevant quantities separately
+        XxX_XxX <- lapply(X,
+                          lapply, function(X) {
+                            crossprod(row_tensor_square(X))
+                          })
+        XxX_Y2xY1 <- Map(function(X, y, d) {
+          y <- split(y, d[[ARtime]])
+          Map( function(X1, X2, y1, y2) {
+            kronecker(crossprod(X2, y2), crossprod(X1, y1))}
+          , X[-length(X)], X[-1], y[-length(y)], y[-1])
+          }, X, Residuals, covariate)
+        # combine
+        XxX_XxX <- Reduce(`+`, unlist(XxX_XxX, FALSE))
+        XxX_Y2xY1 <- Reduce(`+`, unlist(XxX_Y2xY1, FALSE))
 
-        # old verion non-manually:
+        c1 <- solve(XxX_XxX + S, XxX_Y2xY1)
+
+        stop("Continue with new manual fitting of lag 1 variance here.")
+
+
+        # old version non-manually:
 
         make_lag1_data <- function(x1, x2, r1, r2) {
           dims <- c(nrow(x1), nrow(x2))

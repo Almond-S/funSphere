@@ -60,7 +60,7 @@ coef.corSmooth <- function (object, unconstrained = TRUE, ...) {
 #' @import mgcv nlme
 # #' @rdname nlme::corMatrix.corStruct
 #'
-corMatrix.corSmooth_stable <- function(object, covariate = getCovariate(object), corr = TRUE,
+corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr = TRUE,
                                 covariance = TRUE, ...) {
 
   # get residuals
@@ -188,142 +188,7 @@ corMatrix.corSmooth_stable <- function(object, covariate = getCovariate(object),
   attr(fac, "logDet") <- lD
 
   fac
-} # corMatrix.corSmooth_stable
-
-#' @export
-#' @import mgcv nlme
-# #' @rdname nlme::corMatrix.corStruct
-#'
-corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr = TRUE,
-                                covariance = TRUE, ...) {
-
-  # get residuals
-  Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
-  if(is.null(Residuals))
-    Residuals <- c(attr(object, "get_residuals")())
-
-  # check whether models needs to be refit
-  refit <- TRUE # TODO: need to update refit condition
-  if(!refit) {
-    oldpars <- as.vector(attr(object, "model")$smooth[[1]]$sp)
-    refit <- !(all.equal(oldpars, coef(object, unconstrained = FALSE)) == TRUE)
-  }
-
-  if(refit) {
-    if(!is.list(Residuals)) {
-      grps <- getGroups(object)
-      Residuals <- split(Residuals, grps)
-    }
-
-    # build covariance data (assuming vector covariate for now)
-    covariate_comb <- Map(function(x, r) {
-      if(nrow(x) < 2)
-        return(NULL)
-      idx <- combn(seq_len(nrow(x)), 2)
-      d <- x[idx[1,], , drop = FALSE]
-      d[paste0(names(x), "_")] <- x[idx[2, ], , drop = FALSE]
-      d$residuals2 <- combn(r, 2, prod)
-      d$diagonal <- 0
-      x[paste0(names(x), "_")] <- x
-      x$residuals2 <- r^2
-      x$diagonal <- 1
-      rbind(d, x)
-    }, covariate, Residuals)
-    covariate_comb <- do.call(rbind, covariate_comb)
-
-    # fit covariate model
-    args <- as.list(attr(object, "s_args"))
-    args$xt <- as.list(args$xt)
-    args$xt$absorb.cons <- FALSE
-    kform <- as.formula(paste("residuals2 ~ 0 + s(",
-                              paste(names(covariate[[1]]), collapse = ","), ",",
-                              paste(paste0(names(covariate[[1]]), sep = "_"), collapse = ","),
-                              ", bs = 'symm', xt = args$xt, k = args$k, m = args$m) + diagonal"))
-    if(is.null(attr(object, "model_prefit"))) {
-      k_pre <- gam(kform, data = covariate_comb, fit = FALSE)
-      # store prefit object
-      f <- attr(object, "lme_env")
-      if(!is.null(f$lmeSt))
-        attr(f$lmeSt$corStruct, "model_prefit") <- k_pre
-    } else {
-      k_pre <- attr(object, "model_prefit")
-      # update response
-      k_pre$y <- covariate_comb$residuals2
-    }
-
-    # fit model
-    k <- gam(G = k_pre, sp = coef(object, unconstrained = FALSE) )
-
-    if(attr(object, "verbose"))
-      plot(k, asp = 1, main = paste("Smoother penalty:", k$full.sp))
-    k <- force_non_negative(k)
-    if(attr(object, "verbose"))
-      cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
-
-    if(coef(k)["diagonal"] < 0) {
-      # do Manuel Pfeuffer's positivity trick
-      # to ensure non-negative error variance
-      thisdiag <- which(names(coef(k)) == "diagonal")
-      sddiag <- sqrt(k$Vp[thisdiag, thisdiag])
-      # set to mean of normal truncated at 0
-      k$coefficients["diagonal"] <- k$coefficients["diagonal"] + 2*dnorm(0)*sddiag
-    }
-
-    if(attr(object, "verbose"))
-      cat(" --- Noise variance:", k$coefficients["diagonal"], "\n")
-
-    # store model object
-    f <- attr(object, "lme_env")
-    if(!is.null(f$lmeSt)) {
-      attr(f$lmeSt$corStruct, "model") <- k
-    }
-  }
-
-  # get appropriate marginal bases
-  if(is.null(attr(object, "marginalDesign"))) {
-    marginalDesign <- lapply(covariate, Predict.matrix, object = k$smooth[[1]]$margin[[1]])
-    # store marginal design matrix
-    f <- attr(object, "lme_env")
-    if(!is.null(f$lmeSt))
-      attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
-  } else {
-    marginalDesign <- attr(object, "marginalDesign")
-  }
-
-  val <- lapply(marginalDesign, function(X) {
-    # extract design and coefficient matrices
-    coefs <- if(refit) k$coefficients else attr(object, "model")$coefficients
-    Z <- if(refit) k$smooth[[1]]$Z else attr(object, "model")$smooth[[1]]$Z
-    coefs <- list(smooth = Z%*%coefs[-1], nugget = coefs[1])
-
-    # return prediction
-    pred <- X %*%
-      tcrossprod( matrix(coefs$smooth, ncol = sqrt(length(coefs$smooth))),
-                  X)
-    diag(pred) <- diag(pred) + coefs$nugget
-    pred
-  })
-
-  if(!covariance) {
-    for(i in seq_along(val)) {
-      val[[i]] <- cov2cor(val[[i]])
-    }
-  }
-
-  if(corr)
-    return(val)
-
-  # otherwise compute factor:
-  e <- lapply(val, eigen, symmetric = TRUE)
-  # fac <- unlist(lapply(e, function(x) c(1/sqrt(x$values) * t(x$vectors))))
-  fac <- lapply(e, function(x) 1/sqrt(x$values) * t(x$vectors))
-  # log determinant of factor
-  lD <- -1/2*sum(log(unlist(lapply(e, `[[`, "values"))))
-  attr(fac, "logDet") <- lD
-
-  fac
-}
-
+} # corMatrix.corSmooth
 
 
 #' @import nlme
@@ -333,17 +198,6 @@ corFactor.corSmooth <- function(object, ...) {
     return(aux)
   }
   corMatrix(object, ..., corr = FALSE)
-}
-
-
-#' @export
-Initialize.corSmooth <- function(object, data, ...) {
-  object <- NextMethod()
-browser()
-
-  smoother <- NULL
-
-  object
 }
 
 

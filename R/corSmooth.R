@@ -78,10 +78,11 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
   if(is.null(Residuals))
     Residuals <- c(attr(object, "get_residuals")())
 
+  coefs <- attr(object, "coefficients")
   # check whether models needs to be refit
-  refit <- TRUE # TODO: need to update refit condition
+  refit <- is.null(coefs)
   if(!refit) {
-    oldpars <- as.vector(attr(object, "model")$smooth[[1]]$sp)
+    oldpars <- attr(coefs, "sp")
     refit <- !(all.equal(oldpars, coef(object, unconstrained = FALSE)) == TRUE)
   }
 
@@ -90,112 +91,56 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
     if(!is.list(Residuals)) {
       Residuals <- split(Residuals, grps)
     }
-    idx <- split(seq_along(grps), grps)
 
-    # fit covariance via linear array model (Currie et al. 2006)
-    X <- lapply(idx, function(id) attr(object, "smooth")$X[id, , drop = FALSE])
-    S <- attr(object, "penalty")[[1]]
-    # TODO: diagonals still need to be subtracted
-    XxX_YxY <- matrix(0, nrow = nrow(XxX_XxX))
-    # TODO: exclude design matrices with only one row when removing diagonals?
-    for(i in seq_along(X)) {
-      X_Y <- crossprod(X[[i]], as.matrix(Residuals[[i]]))
-      XxX_YxY <- XxX_YxY + kronecker(X_Y, X_Y)
+    coefs <- attr(object, "solvePLS")(
+      sp = coef(object, unconstrained = FALSE),
+      y = Residuals
+      )
+
+    # get positive definite part (in form of its eigen decomposition)
+    ecoefs <- eigen(coefs, symmetric = T)
+    pos <- ecoefs$values > 0
+    ecoefs$values <- ecoefs$values[pos]
+    ecoefs$vectors <- ecoefs$vectors[, pos, drop = FALSE]
+    attr(ecoefs, "sp") <- attr(coefs, "sp")
+
+    # store eigen decomposition of coefficients
+    f <- attr(object, "coefficients")
+    if(!is.null(f$lmeSt))
+        attr(f$lmeSt$corStruct, "coefficients") <- ecoefs
     }
 
-    # compute cofficients
-    coefs <- solve( attr(object, "XxX_XxX") + coef(object, unconstrained = FALSE) * S, c(XxX_YxY))
+    # if(attr(object, "verbose"))
+    #   image(coefs, asp = 1, main = paste("Smoother penalty:", attr(coefs, "sp")))
+
+    if(attr(object, "verbose"))
+      cat("Eigenvalues:", ecoefs$values)
+
+    # obtain predictions
+    X <- environment(attr(object, "solvePLS"))$X
+    val <- lapply(X, function(x) {
+      x <- sweep( x %*% ecoefs$vectors, 2, ecoefs$values, `/`)
+      tcrossprod(x)
+    })
+    res2 <- unlist(Map(function(pred, res) {
+      res^2 - diag(pred)
+    }, val, Residuals))
+    sigma2 <- mean(res2)
 
     browser()
 
-    # build covariance data (assuming vector covariate for now)
-    covariate_comb <- Map(function(x, r) {
-      if(nrow(x) < 2)
-        return(NULL)
-      idx <- combn(seq_len(nrow(x)), 2)
-      d <- x[idx[1,], , drop = FALSE]
-      d[paste0(names(x), "_")] <- x[idx[2, ], , drop = FALSE]
-      d$residuals2 <- combn(r, 2, prod)
-      d$diagonal <- 0
-      x[paste0(names(x), "_")] <- x
-      x$residuals2 <- r^2
-      x$diagonal <- 1
-      rbind(d, x)
-    }, covariate, Residuals)
-    covariate_comb <- do.call(rbind, covariate_comb)
-
-    # fit covariate model
-    args <- as.list(attr(object, "s_args"))
-    args$xt <- as.list(args$xt)
-    args$xt$absorb.cons <- FALSE
-    kform <- as.formula(paste("residuals2 ~ 0 + s(",
-                              paste(names(covariate[[1]]), collapse = ","), ",",
-                              paste(paste0(names(covariate[[1]]), sep = "_"), collapse = ","),
-                              ", bs = 'symm', xt = args$xt, k = args$k, m = args$m) + diagonal"))
-    if(is.null(attr(object, "model_prefit"))) {
-      k_pre <- gam(kform, data = covariate_comb, fit = FALSE)
-      # store prefit object
-      f <- attr(object, "lme_env")
-      if(!is.null(f$lmeSt))
-        attr(f$lmeSt$corStruct, "model_prefit") <- k_pre
-    } else {
-      k_pre <- attr(object, "model_prefit")
-      # update response
-      k_pre$y <- covariate_comb$residuals2
-    }
-
-    # fit model
-    k <- gam(G = k_pre, sp = coef(object, unconstrained = FALSE) )
-
-    if(attr(object, "verbose"))
-      plot(k, asp = 1, main = paste("Smoother penalty:", k$full.sp))
-    k <- force_non_negative(k)
-    if(attr(object, "verbose"))
-      cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
-
-    if(coef(k)["diagonal"] < 0) {
-      # do Manuel Pfeuffer's positivity trick
-      # to ensure non-negative error variance
-      thisdiag <- which(names(coef(k)) == "diagonal")
-      sddiag <- sqrt(k$Vp[thisdiag, thisdiag])
-      # set to mean of normal truncated at 0
-      k$coefficients["diagonal"] <- k$coefficients["diagonal"] + 2*dnorm(0)*sddiag
-    }
+    # if(coef(k)["diagonal"] < 0) {
+    #   # do Manuel Pfeuffer's positivity trick
+    #   # to ensure non-negative error variance
+    #   thisdiag <- which(names(coef(k)) == "diagonal")
+    #   sddiag <- sqrt(k$Vp[thisdiag, thisdiag])
+    #   # set to mean of normal truncated at 0
+    #   k$coefficients["diagonal"] <- k$coefficients["diagonal"] + 2*dnorm(0)*sddiag
+    # }
 
     if(attr(object, "verbose"))
       cat(" --- Noise variance:", k$coefficients["diagonal"], "\n")
 
-    # store model object
-    f <- attr(object, "lme_env")
-    if(!is.null(f$lmeSt)) {
-      attr(f$lmeSt$corStruct, "model") <- k
-    }
-  }
-
-  # get appropriate marginal bases
-  if(is.null(attr(object, "marginalDesign"))) {
-    marginalDesign <- lapply(covariate, Predict.matrix, object = k$smooth[[1]]$margin[[1]])
-    # store marginal design matrix
-    f <- attr(object, "lme_env")
-    if(!is.null(f$lmeSt))
-      attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
-  } else {
-    marginalDesign <- attr(object, "marginalDesign")
-  }
-
-  val <- lapply(marginalDesign, function(X) {
-    # extract design and coefficient matrices
-    coefs <- if(refit) k$coefficients else attr(object, "model")$coefficients
-    Z <- if(refit) k$smooth[[1]]$Z else attr(object, "model")$smooth[[1]]$Z
-    coefs <- list(smooth = Z%*%coefs[-1], nugget = coefs[1])
-
-    # return prediction
-    pred <- X %*%
-      tcrossprod( matrix(coefs$smooth, ncol = sqrt(length(coefs$smooth))),
-                  X)
-    diag(pred) <- diag(pred) + coefs$nugget
-    pred
-  })
 
   if(!covariance) {
     for(i in seq_along(val)) {
@@ -239,8 +184,7 @@ Initialize.corSmooth <- function(object, data, ...) {
   sm <- smooth.construct(sm, data, attr(object, "knots"))
 
   attr(object, "smooth") <- sm
-  pls <- list()
-  attr(object, "penalty") <- S <- tensor.prod.penalties(rep(sm$S, 2))[[1]]
+  S <- tensor.prod.penalties(rep(sm$S, 2))[[1]]
 
   grps <- getGroups(object)
   idx <- split(seq_along(grps), grps)
@@ -272,14 +216,21 @@ Initialize.corSmooth <- function(object, data, ...) {
   # update side factor
   L <- L %*% eK$vectors
 
-  attr(object, "demmler_reinsch") <- function(sp, Xy) {
-    sweep(L, 2, 1 + sp*eK$values, `/`) %*% crossprod(L, Xy)
+  # prepare fitting function
+  attr(object, "solvePLS") <- function(sp, y) {
+    stopifnot(is.list(y) & length(y) == length(X))
+    # compute "Xy"
+    XxX_YxY <- matrix(0, nrow = nrow(XxX_XxX))
+    for(i in seq_along(X)) {
+      X_Y <- crossprod(X[[i]], as.matrix(y[[i]]))
+      XxX_YxY <- XxX_YxY + kronecker(X_Y, X_Y)
+    }
+
+    # solve PLS to get coefficients
+    structure(matrix(
+        sweep(L, 2, 1 + sp*eK$values, `/`) %*% crossprod(L, XxX_YxY),
+      ncol = sqrt(ncol(L))), sp = sp) # store smoothing parameter used for fitting
   }
-
-browser()
-
-  attr(object, "XxX_XxX") <- XxX_XxX
-
 
   object
 }

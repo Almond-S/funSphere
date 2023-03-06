@@ -200,6 +200,35 @@ get_XxXtYxY_noDiag <- function(X, Y) {
   matrix(crossprod(X, YxY_) %*% X, ncol = 1)
 }
 
+#' Title
+#'
+#' @param XtX inner product matrix of design matrix columns
+#' @param S penalty matrix
+#'
+#' @export
+get_demmlerreinsch_solver <- function(XtX, S) {
+  # first decomposition of design product
+  eX <- eigen(XtX)
+  # left cholesky-type factor
+  L <- sweep(eX$vectors, 2, 1/sqrt(eX$values), `*`)
+  # adjust penalty
+  K <- crossprod( L, S ) %*% L
+
+  # then decomposition of adjusted penalty
+  eK <- eigen(K)
+  # update side factor
+  L <- L %*% eK$vectors
+
+  # return fitting function
+  function(sp, # smoothing parameter
+           XtY) {
+    # solve PLS to get coefficients
+    structure(matrix(
+      sweep(L, 2, 1 + sp*eK$values, `/`) %*% crossprod(L, XtY),
+      ncol = sqrt(ncol(L))), sp = sp) # store smoothing parameter used for fitting
+  }
+}
+
 
 #' @import nlme
 #' @export
@@ -219,31 +248,14 @@ Initialize.corSmooth <- function(object, data, ...) {
 
   # compute design matrix innter product using linear array model (Currie et al. 2006)
   X <- lapply(idx, function(id) sm$X[id, , drop = FALSE])
-  # TODO: diagonals still need to be subtracted
   XxX_XxX <- array(0, dim = dim(S))
-  # TODO: exclude design matrices with only one row when removing diagonals?
   for(i in seq_along(X)) {
-    RX <- row_tensor_square(X[[i]])
-    # remove diagonal entries for covariance estimation using this weight matrix
-    NoDiag <- 1 - diag(1, nrow = nrow(X[[i]]), ncol = nrow(X[[i]]))
-    # matrix obtained via array model has to be reorganized:
-    XxX_XxX_ <- array(crossprod(RX, NoDiag %*% RX), dim = rep(ncol(X[[i]]), 4))
-    XxX_XxX <- XxX_XxX + matrix(aperm(XxX_XxX_, c(1,3,2,4)), ncol = ncol(RX))
+    # Note that diagonals are omitted in get get_XxXtXxX() for covariance estimation
+    XxX_XxX <- XxX_XxX + get_XxXtXxX(X[[i]])
   }
 
   # use Demmler-Reinsch type form to speed up computation
-
-  # first decomposition of design product
-  eX <- eigen(XxX_XxX)
-  # left cholesky-type factor
-  L <- sweep(eX$vectors, 2, 1/sqrt(eX$values), `*`)
-  # adjust penalty
-  K <- crossprod( L, S ) %*% L
-
-  # then decomposition of adjusted penalty
-  eK <- eigen(K)
-  # update side factor
-  L <- L %*% eK$vectors
+  DRsolve <- get_demmlerreinsch_solver(XxX_XxX, S)
 
   # prepare fitting function
   attr(object, "solvePLS") <- function(sp, y) {
@@ -251,20 +263,12 @@ Initialize.corSmooth <- function(object, data, ...) {
     # compute "Xy"
     XxX_YxY <- matrix(0, nrow = nrow(XxX_XxX))
     for(i in seq_along(X)) {
-      # have to use generalized linear array model again
-      # instead of using Kronecker structure directly for omitting diagonal
-      YxY_ <- tcrossprod(y[[i]])
-      diag(YxY_) <- 0
-      # here order should be correct already
-      XxX_YxY <- XxX_YxY + c(crossprod(X[[i]], YxY_) %*% X[[i]])
+      XxX_YxY <- XxX_YxY + get_XxXtYxY_noDiag(X[[i]], y[[i]])
     }
 
     # solve PLS to get coefficients
-    structure(matrix(
-        sweep(L, 2, 1 + sp*eK$values, `/`) %*% crossprod(L, XxX_YxY),
-      ncol = sqrt(ncol(L))), sp = sp) # store smoothing parameter used for fitting
+    DRsolve(sp, XxX_YxY)
   }
-
   object
 }
 

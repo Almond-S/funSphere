@@ -173,6 +173,34 @@ corFactor.corSmooth <- function(object, ...) {
   corMatrix(object, ..., corr = FALSE)
 }
 
+
+#' @param X marginal design matrix of \code{kronecker(X, X)}.
+#' @param W matrix containing diagonal of diagonal weight matrix of the kronecker design.
+#' Default: zero weights on diagonal and elsewhere one.
+#'
+#' @export
+get_XxXtXxX <- function(X, W = 1- diag(nrow = nrow(X))) {
+  RX <- row_tensor_square(X)
+  # matrix obtained via array model has to be reorganized:
+  XxXtXxX_ <- array(crossprod(RX, W %*% RX), dim = rep(ncol(X), 4))
+  matrix(aperm(XxXtXxX_, c(1,3,2,4)), ncol = ncol(RX))
+}
+
+
+#' Title
+#'
+#' @param X marginal designmatrix in \code{kronecker{X,X}}.
+#' @param Y marginal response in \code{kronecker{Y,Y}} minus diagonal.
+#'
+#' @export
+get_XxXtYxY_noDiag <- function(X, Y) {
+  YxY_ <- tcrossprod(Y)
+  diag(YxY_) <- 0
+  # here order should be correct already
+  matrix(crossprod(X, YxY_) %*% X, ncol = 1)
+}
+
+
 #' @import nlme
 #' @export
 Initialize.corSmooth <- function(object, data, ...) {
@@ -195,11 +223,12 @@ Initialize.corSmooth <- function(object, data, ...) {
   XxX_XxX <- array(0, dim = dim(S))
   # TODO: exclude design matrices with only one row when removing diagonals?
   for(i in seq_along(X)) {
-    RT <- row_tensor_square(X[[i]])
-    ONE <- matrix(1, nrow = nrow(X[[i]]), ncol = nrow(X[[i]]))
+    RX <- row_tensor_square(X[[i]])
+    # remove diagonal entries for covariance estimation using this weight matrix
+    NoDiag <- 1 - diag(1, nrow = nrow(X[[i]]), ncol = nrow(X[[i]]))
     # matrix obtained via array model has to be reorganized:
-    XxX_XxX_ <- array(crossprod(RT, ONE %*% RT), dim = rep(ncol(X[[i]]), 4))
-    XxX_XxX <- XxX_XxX + matrix(aperm(XxX_XxX_, c(1,3,2,4)), ncol = ncol(RT))
+    XxX_XxX_ <- array(crossprod(RX, NoDiag %*% RX), dim = rep(ncol(X[[i]]), 4))
+    XxX_XxX <- XxX_XxX + matrix(aperm(XxX_XxX_, c(1,3,2,4)), ncol = ncol(RX))
   }
 
   # use Demmler-Reinsch type form to speed up computation
@@ -222,8 +251,12 @@ Initialize.corSmooth <- function(object, data, ...) {
     # compute "Xy"
     XxX_YxY <- matrix(0, nrow = nrow(XxX_XxX))
     for(i in seq_along(X)) {
-      X_Y <- crossprod(X[[i]], as.matrix(y[[i]]))
-      XxX_YxY <- XxX_YxY + kronecker(X_Y, X_Y)
+      # have to use generalized linear array model again
+      # instead of using Kronecker structure directly for omitting diagonal
+      YxY_ <- tcrossprod(y[[i]])
+      diag(YxY_) <- 0
+      # here order should be correct already
+      XxX_YxY <- XxX_YxY + c(crossprod(X[[i]], YxY_) %*% X[[i]])
     }
 
     # solve PLS to get coefficients

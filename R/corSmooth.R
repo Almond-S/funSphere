@@ -105,51 +105,63 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
     attr(ecoefs, "sp") <- attr(coefs, "sp")
 
     # store eigen decomposition of coefficients
-    f <- attr(object, "coefficients")
+    f <- attr(object, "lme_env")
     if(!is.null(f$lmeSt))
         attr(f$lmeSt$corStruct, "coefficients") <- ecoefs
-    }
-
-    # if(attr(object, "verbose"))
-    #   image(coefs, asp = 1, main = paste("Smoother penalty:", attr(coefs, "sp")))
 
     if(attr(object, "verbose"))
       cat("Eigenvalues:", ecoefs$values)
+  }
+
+
+  if(refit | !covariance | ((corr | is.null(attr(object, "fac"))) &
+       is.null(attr(object, "covariance"))) ) {
+
+    if(!refit)
+      ecoefs <- attr(object, "coefficients")
 
     # obtain predictions
     X <- environment(attr(object, "solvePLS"))$X
+
     val <- lapply(X, function(x) {
-      x <- sweep( x %*% ecoefs$vectors, 2, ecoefs$values, `/`)
+      x <- sweep( x %*% ecoefs$vectors, 2, sqrt(ecoefs$values), `*`)
       tcrossprod(x)
     })
     res2 <- unlist(Map(function(pred, res) {
       res^2 - diag(pred)
     }, val, Residuals))
-    sigma2 <- mean(res2)
+    # residual noise variance
+    sigma2 <- max(mean(res2), min(ecoefs$values)/2)
 
-    browser()
-
-    # if(coef(k)["diagonal"] < 0) {
-    #   # do Manuel Pfeuffer's positivity trick
-    #   # to ensure non-negative error variance
-    #   thisdiag <- which(names(coef(k)) == "diagonal")
-    #   sddiag <- sqrt(k$Vp[thisdiag, thisdiag])
-    #   # set to mean of normal truncated at 0
-    #   k$coefficients["diagonal"] <- k$coefficients["diagonal"] + 2*dnorm(0)*sddiag
-    # }
+    val <- lapply(val, function(x) {
+      diag(x) <- diag(x) + sigma2
+      x})
+    attr(val, "sigma2noise") <- sigma2
 
     if(attr(object, "verbose"))
-      cat(" --- Noise variance:", k$coefficients["diagonal"], "\n")
+      cat(" --- Noise variance:", sigma2, "\n")
 
+    # store eigen decomposition of coefficients
+    f <- attr(object, "lme_env")
+    if(!is.null(f$lmeSt))
+      attr(f$lmeSt$corStruct, "covariance") <- val
 
-  if(!covariance) {
-    for(i in seq_along(val)) {
-      val[[i]] <- cov2cor(val[[i]])
+    if(!covariance) {
+      for(i in seq_along(val)) {
+        val[[i]] <- cov2cor(val[[i]])
+      }
     }
-  }
 
-  if(corr)
-    return(val)
+      if(corr)
+        return(val)
+
+    } else {
+      if(!is.null(attr(object, "fac")))
+        return(attr(object, "fac"))
+
+      # only remaining case: fac wanted but only covariance available
+      val <- attr(objec, "covariance")
+    }
 
   # otherwise compute factor:
   e <- lapply(val, eigen, symmetric = TRUE)
@@ -179,8 +191,7 @@ corFactor.corSmooth <- function(object, ...) {
 #' Default: zero weights on diagonal and elsewhere one.
 #'
 #' @export
-get_XxXtXxX <- function(X, W = 1- diag(nrow = nrow(X))) {
-  RX <- row_tensor_square(X)
+get_XxXtXxX <- function(X, W = 1- diag(nrow = nrow(X)), RX = row_tensor_square(X)) {
   # matrix obtained via array model has to be reorganized:
   XxXtXxX_ <- array(crossprod(RX, W %*% RX), dim = rep(ncol(X), 4))
   matrix(aperm(XxXtXxX_, c(1,3,2,4)), ncol = ncol(RX))
@@ -260,16 +271,19 @@ Initialize.corSmooth <- function(object, data, ...) {
   # compute design matrix innter product using linear array model (Currie et al. 2006)
   X <- lapply(idx, function(id) sm$X[id, , drop = FALSE])
   nrowX <- sapply(X, nrow)
+  ncolX <- sqrt(ncol(S))
 
   XxXtXxX <- array(0, dim = dim(S))
+  RX <- list()
   # omit X with only one observation
   for(i in which(nrowX>1)) {
     # Note that diagonals are omitted in get get_XxXtXxX() for covariance estimation
-    XxXtXxX <- XxXtXxX + get_XxXtXxX(X[[i]])
+    RX[[i]] <- row_tensor_square(X[[i]])
+    XxXtXxX <- XxXtXxX + get_XxXtXxX(X[[i]], RX = RX[[i]])
   }
 
   # use symmetry
-  Z <- make_summation_matrix(ncol(X))
+  Z <- make_summation_matrix(ncolX)
   # use Demmler-Reinsch type form to speed up computation
   DRsolve <- get_demmlerreinsch_solver(XxXtXxX, S, X_trafo = Z)
 
@@ -277,13 +291,13 @@ Initialize.corSmooth <- function(object, data, ...) {
   attr(object, "solvePLS") <- function(sp, y) {
     stopifnot(is.list(y) & length(y) == length(X))
     # compute "Xy"
-    XxXtYxY <- matrix(0, nrow = nrow(ZtXxXtXxXZ))
+    XxXtYxY <- matrix(0, nrow = nrow(XxXtXxX))
     # again omit X with only one observation
     for(i in which(nrowX>1)) {
-      XxXtYxY <- XxXtYxY + get_XxXtYxY_noDiag(X[[i]], y[[i]])
+      XxXtYxY <- XxXtYxY + get_XxXtYxY_noDiag(X[[i]], y[[i]], RX = RX[[i]])
     }
     # solve PLS to get coefficient matrix
-    matrix(DRsolve(sp, XxX_YxY), ncol = ncol(sm$X), nrow = ncol(sm$X))
+    matrix(DRsolve(sp, XxXtYxY), ncol = ncolX, nrow = ncolX)
   }
   object
 }

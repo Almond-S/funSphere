@@ -25,7 +25,7 @@ corSmooth <- function(value = 0, form = ~1, fixed = FALSE,
   if (any(value < 0)) {
     stop("penalty parameter for covariance smoothing must be non-negative")
   }
-  value <- notLog2(value)
+  value[] <- notLog2(value)
 
   attr(value, "verbose") <- verbose
   class(value) <- c("corSmooth", "corStruct")

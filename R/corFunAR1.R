@@ -19,13 +19,9 @@
 corFunAR1 <- function(value = 0, form = ~ 1, fixed = FALSE, # first: version with same smoothing parameter for auto- and cross-covariance
                       working_correlation = corCAR1,
                       working_control = list(), verbose = FALSE) {
-  if (any(value < 0)) {
-    stop("penalty parameter for covariance smoothing must be non-negative")
-  }
-  value <- notLog2(value)
+    # store original formula
+  form0 <- form
 
-  # store orginal formula
-  attr(value, "form0") <- form
   # and remove the AR time
   l1 <- length(form)
   l2 <- length(form[[l1]])
@@ -34,18 +30,23 @@ corFunAR1 <- function(value = 0, form = ~ 1, fixed = FALSE, # first: version wit
     ARtime <- form[[l1]][[l2]][[3]]
     form[[l1]] <- form[[l1]][[2]]
   } else {
-    l3 <- length(form[[l1]][[l2]][[3]])
+    l3 <- length(form[[l1]][[l2]])
     ARtime <- form[[l1]][[l2]][[l3]]
     form[[l1]][[l2]] <- form[[l1]][[l2]][[2]]
   }
-  attr(value, "ARtime") <- ARtime
+  ARform <- ~ t
+  environment(ARform) <- environment(form)
+  ARform[[2]] <- ARtime
+  attr(value, "ARformula") <- ARform
+  attr(value, "ARtime") <- as.character(ARtime)
 
-  attr(value, "verbose") <- verbose
-  class(value) <- c("corFunAR1", "corStruct")
+  attr(value, "lme_formula") <- form
 
-  corDynamic(value, working_correlation = working_correlation,
+  value <- corSmooth(value, working_correlation = working_correlation,
              working_control = working_control,
-             form = form, fixed = fixed)
+             form = form0, fixed = fixed, verbose = verbose)
+  class(value) <- c("corFunAR1", class(value))
+  value
 }
 
 
@@ -70,24 +71,10 @@ coef.corFunAR1 <- function (object, unconstrained = TRUE, ...) {
 #' @import nlme
 #'
 Initialize.corFunAR1 <- function(object, data, ...) {
-  browser()
-  form <- formula(object)
-  ARtime <- form[[2]][[3]]
-  resp <- form[[2]][[2]]
-  if(resp == str2lang("."))
-    lag0form <-
-  lag0form <- update(form, weights ~ .)
 
+  # first initialize covariance smoothing
   object <- NextMethod()
   covar <- getCovariate(object)[[1]]
-  which_int <- names(covar)[sapply(as.list(covar), is.integer)]
-  if(length(which_int) != 1)
-    stop("Exactly one covariate, corresponding to the discrete time of the AR process,
-         has to be provided as integer.")
-  attr(object, "ARtime") <- which_int
-
-
-
 
   object
 }

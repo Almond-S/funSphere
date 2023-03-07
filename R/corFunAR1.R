@@ -16,16 +16,30 @@
 #' @import mgcv nlme Matrix MASS
 #' @export
 #'
-corFunAR1 <- function(value = 0, form = ~1, fixed = FALSE, # first: version with same smoothing parameter for auto- and cross-covariance
+corFunAR1 <- function(value = 0, form = ~ 1, fixed = FALSE, # first: version with same smoothing parameter for auto- and cross-covariance
                       working_correlation = corCAR1,
-                      working_control = list(),
-                      s_xt = list(), s_k = -1, s_m = NA, verbose = FALSE) {
+                      working_control = list(), verbose = FALSE) {
   if (any(value < 0)) {
     stop("penalty parameter for covariance smoothing must be non-negative")
   }
   value <- notLog2(value)
 
-  attr(value, "s_args") <- list(xt = s_xt, k = s_k, m = s_m)
+  # store orginal formula
+  attr(value, "form0") <- form
+  # and remove the AR time
+  l1 <- length(form)
+  l2 <- length(form[[l1]])
+  stopifnot(form[[l1]][[1]] == as.name("|"))
+  if(l2 == 1) {
+    ARtime <- form[[l1]][[l2]][[3]]
+    form[[l1]] <- form[[l1]][[2]]
+  } else {
+    l3 <- length(form[[l1]][[l2]][[3]])
+    ARtime <- form[[l1]][[l2]][[l3]]
+    form[[l1]][[l2]] <- form[[l1]][[l2]][[2]]
+  }
+  attr(value, "ARtime") <- ARtime
+
   attr(value, "verbose") <- verbose
   class(value) <- c("corFunAR1", "corStruct")
 
@@ -56,6 +70,14 @@ coef.corFunAR1 <- function (object, unconstrained = TRUE, ...) {
 #' @import nlme
 #'
 Initialize.corFunAR1 <- function(object, data, ...) {
+  browser()
+  form <- formula(object)
+  ARtime <- form[[2]][[3]]
+  resp <- form[[2]][[2]]
+  if(resp == str2lang("."))
+    lag0form <-
+  lag0form <- update(form, weights ~ .)
+
   object <- NextMethod()
   covar <- getCovariate(object)[[1]]
   which_int <- names(covar)[sapply(as.list(covar), is.integer)]
@@ -63,6 +85,10 @@ Initialize.corFunAR1 <- function(object, data, ...) {
     stop("Exactly one covariate, corresponding to the discrete time of the AR process,
          has to be provided as integer.")
   attr(object, "ARtime") <- which_int
+
+
+
+
   object
 }
 

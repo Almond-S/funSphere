@@ -18,14 +18,14 @@ plot(m0)
 tic()
 m <- gamm(accel ~ s(distance), data = dat,
           correlation = corSmooth(.1,
-                                  form = ~ s(distance, bs = "tp", k = 5, m = c(0,2)) | Quake,
+                                  form = ~ s(distance, bs = "tp", k = 4) | Quake,
                                   working_correlation = corGaus))
 toc()
-# old version of corSmooth, fitted on laptop: 14.09 sec
+# old version of corSmooth, fitted on laptop: 14.09 sec - new one down to .7 sec!
 
 {opar <- par(mfrow = c(1,2))
-  plot(m0, main = "gam")
-  plot(m$gam, main = "gamm: corSmooth")
+  plot(m0, main = "gam", ylim = range(dat$accel) - m0$coefficients[1])
+  plot(m$gam, main = "gamm: corSmooth", ylim = range(dat$accel)- m0$coefficients[1])
   par(opar)}
 
 
@@ -37,9 +37,8 @@ m0 <- gam(logSize ~ s(days), data = dat, fit = FALSE)
 plot(gam(G = m0))
 
 m <- gamm(logSize ~ s(days), data = dat, method = "REML",
-          correlation = corSmooth(.1, form = ~ days | Tree,
-                                  working_correlation = corAR1,
-                                  s_xt = list(bsmargin = "tp")))
+          correlation = corSmooth(.1, form = ~ s(days, bs = "tp") | Tree,
+                                  working_correlation = corAR1))
 {opar <- par(mfrow = c(1,2))
   plot(gam(G = m0), main = "gam")
   plot(m$gam, main = "gamm: corSmooth")
@@ -54,10 +53,9 @@ m0 <- gam(weight ~ s(Time), data = dat, fit = FALSE)
 
 
 m <- gamm(weight ~ s(Time), data = dat, method = "REML",
-          correlation = corSmooth(value = 0.01, form =  ~ Time | Plot,
-                                    working_correlation = corCAR1,
-                                  s_xt = list(bsmargin = "tp"),
-                                  s_m = c(0,2), verbose = T))
+          correlation = corSmooth(value = 0.01,
+                                  form =  ~ s(Time, bs = "tp", k = 3) | Plot,
+                                    working_correlation = corCAR1, verbose = T))
 m1 <- gamm(weight ~ s(Time), data = dat,
            correlation = corGaus(form = ~ Time | Plot))
 
@@ -76,5 +74,4 @@ mat_ <- e$vectors %*% (e$values * t(e$vectors))
 image(mat_, asp = 1)
 image(mat[[1]], asp = 1)
 
-fac <- attr(mat, "fac")[[1]]
 

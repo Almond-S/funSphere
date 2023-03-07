@@ -100,7 +100,9 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
     # get positive definite part (in form of its eigen decomposition)
     ecoefs <- eigen(coefs, symmetric = T)
     pos <- ecoefs$values > 0
-    ecoefs$values <- ecoefs$values[pos]
+    # rescale positive eigenvalues to same sum
+    ecoefs$values <- ecoefs$values[pos] *
+      sum(ecoefs$values) / sum(ecoefs$values[pos])
     ecoefs$vectors <- ecoefs$vectors[, pos, drop = FALSE]
     attr(ecoefs, "sp") <- attr(coefs, "sp")
 
@@ -169,6 +171,8 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
   fac <- lapply(e, function(x) 1/sqrt(x$values) * t(x$vectors))
   # log determinant of factor
   lD <- -1/2*sum(log(unlist(lapply(e, `[[`, "values"))))
+  if(is.na(lD))
+    browser()
   attr(fac, "logDet") <- lD
 
   fac

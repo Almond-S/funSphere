@@ -74,7 +74,14 @@ Initialize.corFunAR1 <- function(object, data, ...) {
 
   # first initialize covariance smoothing
   object <- NextMethod()
+
   covar <- getCovariate(object)[[1]]
+
+  attr(object, "groups_lag0") <- attr(object, "groups")
+  attr(object, "Dim_lag0") <- attr(object, "Dim")
+
+  attr(object, "groups") <- getGroups(data, formula(object), level = 1)
+  attr(object, "Dim") <- Dim(object, attr(object, "groups"))
 
   object
 }

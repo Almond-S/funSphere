@@ -193,44 +193,55 @@ get_XxXtXxX <- function(X, W = 1- diag(nrow = nrow(X))) {
 #' @param Y marginal response in \code{kronecker{Y,Y}} minus diagonal.
 #'
 #' @export
-get_XxXtYxY_noDiag <- function(X, Y) {
-  YxY_ <- tcrossprod(Y)
-  diag(YxY_) <- 0
-  # here order should be correct already
-  matrix(crossprod(X, YxY_) %*% X, ncol = 1)
+#' @import nlme sparseFLMM
+get_XxXtYxY_noDiag <- function(X, Y, RX = row_tensor_square(X)) {
+  XtY <- crossprod(X, Y)
+  kronecker(XtY, XtY) - crossprod(RX, Y^2) # subtract diagonal
 }
 
 #' Title
 #'
 #' @param XtX inner product matrix of design matrix columns
 #' @param S penalty matrix
+#' @param XtX_trafo a basis transformation matrix for restricting to a subspace
+#' basis \code{X %*% XtX_trafo}. Note that the argument \code{XtY} of the
+#' returned fitting function will stay untransformed and also the coefficients
+#' of the untransformed basis will be returned by it.
 #'
 #' @export
-get_demmlerreinsch_solver <- function(XtX, S) {
+get_demmlerreinsch_solver <- function(XtX, S, X_trafo = NULL) {
   # first decomposition of design product
-  eX <- eigen(XtX)
+  eX <- if(is.null(X_trafo)) eigen(XtX) else
+    eigen(crossprod(X_trafo, XtX) %*% X_trafo)
   # left cholesky-type factor
   L <- sweep(eX$vectors, 2, 1/sqrt(eX$values), `*`)
   # adjust penalty
-  K <- crossprod( L, S ) %*% L
+  K <- if(is.null(X_trafo)) crossprod( L, S ) %*% L else
+    crossprod( L, crossprod(X_trafo, S) %*% X_trafo ) %*% L
 
   # then decomposition of adjusted penalty
   eK <- eigen(K)
   # update side factor
-  L <- L %*% eK$vectors
+  L <- L_right <- L %*% eK$vectors
+  # take trafo into prediction matrix
+  if(!is.null(X_trafo)) {
+    L_right <- X_trafo %*% L
+  }
 
   # return fitting function
   function(sp, # smoothing parameter
            XtY) {
     # solve PLS to get coefficients
-    structure(matrix(
-      sweep(L, 2, 1 + sp*eK$values, `/`) %*% crossprod(L, XtY),
-      ncol = sqrt(ncol(L))), sp = sp) # store smoothing parameter used for fitting
+    coefs <- structure(
+      sweep(L, 2, 1 + sp*eK$values, `/`) %*% crossprod(L_right, XtY),
+      ncol = sqrt(ncol(L)), sp = sp) # store smoothing parameter used for fitting
+    if(is.null(X_trafo))
+      coefs else X_trafo %*% coefs
   }
 }
 
 
-#' @import nlme
+#' @import nlme sparseFLMM
 #' @export
 Initialize.corSmooth <- function(object, data, ...) {
   object <- NextMethod()
@@ -248,26 +259,31 @@ Initialize.corSmooth <- function(object, data, ...) {
 
   # compute design matrix innter product using linear array model (Currie et al. 2006)
   X <- lapply(idx, function(id) sm$X[id, , drop = FALSE])
-  XxX_XxX <- array(0, dim = dim(S))
-  for(i in seq_along(X)) {
+  nrowX <- sapply(X, nrow)
+
+  XxXtXxX <- array(0, dim = dim(S))
+  # omit X with only one observation
+  for(i in which(nrowX>1)) {
     # Note that diagonals are omitted in get get_XxXtXxX() for covariance estimation
-    XxX_XxX <- XxX_XxX + get_XxXtXxX(X[[i]])
+    XxXtXxX <- XxXtXxX + get_XxXtXxX(X[[i]])
   }
 
+  # use symmetry
+  Z <- make_summation_matrix(ncol(X))
   # use Demmler-Reinsch type form to speed up computation
-  DRsolve <- get_demmlerreinsch_solver(XxX_XxX, S)
+  DRsolve <- get_demmlerreinsch_solver(XxXtXxX, S, X_trafo = Z)
 
   # prepare fitting function
   attr(object, "solvePLS") <- function(sp, y) {
     stopifnot(is.list(y) & length(y) == length(X))
     # compute "Xy"
-    XxX_YxY <- matrix(0, nrow = nrow(XxX_XxX))
-    for(i in seq_along(X)) {
-      XxX_YxY <- XxX_YxY + get_XxXtYxY_noDiag(X[[i]], y[[i]])
+    XxXtYxY <- matrix(0, nrow = nrow(ZtXxXtXxXZ))
+    # again omit X with only one observation
+    for(i in which(nrowX>1)) {
+      XxXtYxY <- XxXtYxY + get_XxXtYxY_noDiag(X[[i]], y[[i]])
     }
-
-    # solve PLS to get coefficients
-    DRsolve(sp, XxX_YxY)
+    # solve PLS to get coefficient matrix
+    matrix(DRsolve(sp, XxX_YxY), ncol = ncol(sm$X), nrow = ncol(sm$X))
   }
   object
 }

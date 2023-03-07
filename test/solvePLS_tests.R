@@ -34,7 +34,7 @@ YxY_ <- YxY[!d, , drop = FALSE]
 
 XxX_tYxY_ <- crossprod(XxX_, YxY_)
 
-stopifnot(all.equal(XxXtYxY, XxX_tYxY_))
+stopifnot(all.equal(c(XxXtYxY), c(XxX_tYxY_)))
 # nice!
 
 
@@ -45,8 +45,8 @@ D <- diff(diag(ncol(XxXtXxX)), differences = 2)
 S <- crossprod(D)
 
 # fit via Demmler Reinsch
-dlsolve <- get_demmlerreinsch_solver(XxXtXxX, S)
-coefs <- dlsolve(.1, XxXtYxY)
+drsolve <- get_demmlerreinsch_solver(XxXtXxX, S)
+coefs <- drsolve(.1, XxXtYxY)
 
 # naive fit
 coefs_ <- solve(XxXtXxX + .1*S, c(XxXtYxY))
@@ -54,4 +54,14 @@ coefs_ <- solve(XxXtXxX + .1*S, c(XxXtYxY))
 stopifnot(all.equal(c(coefs), c(coefs_)))
 # Perfect!!!
 
+# use constrained basis -------------------------------------------------
+Z <- sparseFLMM::make_summation_matrix(ncol(X))
+drsolve. <- get_demmlerreinsch_solver(XxXtXxX, S, Q)
+coefs. <- drsolve.(.1, XxXtYxY)
 
+coefs_trafo <- solve(crossprod(Z, XxXtXxX + .1*S) %*% Z, c(crossprod(Z, XxXtYxY)))
+
+stopifnot(all.equal(c(coefs.), c(Z %*% coefs_trafo)))
+# a little bit more shrinkage seems to be applied with transformed basis?!?
+plot(coefs)
+points(coefs., pch = 4, col = "red")

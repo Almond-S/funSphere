@@ -10,9 +10,6 @@ corFunAR1(
   fixed = FALSE,
   working_correlation = corCAR1,
   working_control = list(),
-  s_xt = list(),
-  s_k = -1,
-  s_m = NA,
   verbose = FALSE
 )
 }

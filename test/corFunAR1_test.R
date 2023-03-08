@@ -17,6 +17,10 @@ covar <- getCovariate(cs, data = dat)
 resp <- getResponse(cs, data = dat)
 cs <- Initialize(cs, dat)
 
+# compare to standard
+car <- corCAR1(form = ~ Time)
+car <- Initialize(car, dat)
+
 FunMat <- corMatrix(cs, corr = T)
 Matrix::image(crossprod(FunMat[[1]]))
 persp(crossprod(FunMat[[1]]))

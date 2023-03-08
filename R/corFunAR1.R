@@ -25,12 +25,12 @@ corFunAR1 <- function(value = 0, form = ~ 1, fixed = FALSE, # first: version wit
   # and remove the AR time
   l1 <- length(form)
   l2 <- length(form[[l1]])
+  l3 <- length(form[[l1]][[l2]])
   stopifnot(form[[l1]][[1]] == as.name("|"))
-  if(l2 == 1) {
-    ARtime <- form[[l1]][[l2]][[3]]
+  if(l3 == 1) {
+    ARtime <- form[[l1]][[l2]]
     form[[l1]] <- form[[l1]][[2]]
   } else {
-    l3 <- length(form[[l1]][[l2]])
     ARtime <- form[[l1]][[l2]][[l3]]
     form[[l1]][[l2]] <- form[[l1]][[l2]][[2]]
   }
@@ -69,18 +69,29 @@ coef.corFunAR1 <- function (object, unconstrained = TRUE, ...) {
 
 
 #' @param X1,X2 marginal design matrices of \code{kronecker(X2, X1)}.
+#' @param w a weight vector of length \code{nrow(X1)*nrow(X2)}.
 #' @param RX1,RX2 row tensor products if design matrices
-#' (only available as arguments to allow precomputation)..
+#' (only available as arguments to allow precomputation).
 #'
 #' @export
-get_X2xX1tX2xX1 <- function(X1, X2 = X1,
+get_X2xX1tX2xX1_weighted <- function(X1, X2 = X1, w = rep(1, nrow(X1)*nrow(X2)),
                             RX1 = row_tensor_square(X1),
                             RX2 = row_tensor_square(X2)) {
   # matrix obtained via array model has to be reorganized:
-  X2xX1tX2xX1_ <- array(crossprod(RX1, W %*% RX2),
+  X2xX1tX2xX1_ <- array(crossprod(RX1, matrix(w, ncol = nrow(RX2)) %*% RX2),
                         dim = rep(c(ncol(X1), ncol(X2)), each = 2))
-  matrix(aperm(X2xX1tX2xX1_, c(1,3,2,4)), ncol = ncol(RX1)*ncol(RX2))
+  matrix(aperm(X2xX1tX2xX1_, c(1,3,2,4)), ncol = ncol(X1)*ncol(X2))
 }
+
+
+#' @param X1,X2 marginal design matrices of \code{kronecker(X2, X1)}.
+#' (only available as arguments to allow precomputation).
+#'
+#' @export
+get_X2xX1tX2xX1 <- function(X1, X2 = X1) {
+  kronecker(crossprod(X2, X2), crossprod(X1, X1))
+}
+
 
 #' @param X1,X2 marginal design matrices in \code{kronecker{X2,X1}}.
 #' @param Y1,Y2 marginal responses in \code{kronecker{Y2,Y1}}.
@@ -101,21 +112,47 @@ Initialize.corFunAR1 <- function(object, data, ...) {
   # first initialize covariance smoothing
   object <- NextMethod()
 
-  covar <- getCovariate(object)[[1]]
+  # change groups and Dim to truly independent groups
+  attr(object, "inner_groups") <- attr(object, "groups")
+  attr(object, "inner_Dim") <- attr(object, "Dim")
 
-  attr(object, "groups_lag0") <- attr(object, "groups")
-  attr(object, "Dim_lag0") <- attr(object, "Dim")
+  ngroups <- length(getGroupsFormula(object, TRUE))
+  attr(object, "groups") <- if(ngroups>1)
+    getGroups(data, formula(object), level = ngroups - 1)
+  attr(object, "Dim") <- if(ngroups>1)
+    Dim(object, attr(object, "groups")) else
+      Dim(object, factor(rep(1, attr(object, "lag0Dim")$N)))
 
-  attr(object, "groups") <- getGroups(data, formula(object), level = 1)
-  attr(object, "Dim") <- Dim(object, attr(object, "groups"))
+  browser()
+  e <- environment(attr(object, "solvePLS"))
+  X <- e$X
+  S <- e$S
+  RX <- e$RX
+  nrowX <- sapply(X, nrow)
+  ncolX <- sqrt(ncol(S))
+
+  X2xX1tX2xX1 <- array(0, dim = dim(S))
+  for(i in seq_len(length(X) - 1)) {
+    X2xX1tX2xX1 <- X2xX1tX2xX1 + get_X2xX1tX2xX1(X[[i]], X[[i+1]])
+  }
+
+  DRsolve2 <- get_demmlerreinsch_solver(X2xX1tX2xX1, S)
+
+  # prepare fitting function
+  attr(object, "solveLag1PLS") <- function(sp, y) { # U is a basis trafo matrix
+    stopifnot(is.list(y) & length(y) == length(X))
+    # compute "Xy"
+    X2xX1tY2xY1 <- matrix(0, nrow = nrow(X2xX1tX2xX1))
+    # again omit X with only one observation
+    for(i in seq_len(length(X) - 1)) {
+      X2xX1tY2xY1 <- X2xX1tY2xY1 + get_X2xX1tY2xY1(X[[i]], X[[i+1]], y[[i]], y[[i+1]])
+    }
+    # solve PLS to get coefficient matrix
+    matrix(DRsolve2(sp, X2xX1tY2xY1), ncol = ncolX, nrow = ncolX)
+  }
 
   object
 }
-
-
-row_tensor_square <- function(x) x[, rep(1:ncol(x), each = ncol(x))] *
-  x[, rep(1:ncol(x), ncol(x))]
-
 
 #' @export
 #' @import mgcv nlme Matrix
@@ -123,7 +160,7 @@ row_tensor_square <- function(x) x[, rep(1:ncol(x), each = ncol(x))] *
 #'
 corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
                                 corr = TRUE, # named to be consistent with other corMatrix methods
-                                # -> if corr = FALSE, cholesky factor of precision is computed
+                                # -> if corr = FALSE, Cholesky factor of precision is computed
                                 covariance = TRUE,
                                 orthodat = NULL, ...) {
 
@@ -131,233 +168,67 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     stop("Currently only covariance matrices and no correlation
                        matrices are computed.")
 
-  # get residuals
-  Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
-  if(is.null(Residuals))
-    Residuals <- c(attr(object, "get_residuals")())
-
+  coefs <- attr(object, "coefficients")
   # check whether models needs to be refit
-  refit <- is.null(attr(object, "model"))
+  refit <- is.null(coefs)
   if(!refit) {
-    oldpars <- as.vector(attr(object, "model")$smooth[[1]]$sp)
+    oldpars <- attr(coefs, "sp")
     refit <- !(all.equal(oldpars, coef(object, unconstrained = FALSE)) == TRUE)
   }
 
-  # name of the time variable of the AR process
-  ARtime <- attr(object, "ARtime")
-  covnames <- setdiff(all.vars(getCovariateFormula(object)), ARtime)
-  covnames_ <- paste0(covnames, "_")
-
-  grps <- getGroups(object)
-
   if(refit) {
+    # get residuals
+    Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
+    if(is.null(Residuals))
+      Residuals <- c(attr(object, "get_residuals")())
 
-        if(!is.list(Residuals)) {
-          Residuals <- split(Residuals, grps)
-        }
+    grps <- getGroups(object)
+    if(!is.list(Residuals)) {
+      Residuals <- split(Residuals, grps)
+    }
 
-        ## first estimate lag 0 covariance as in corSmooth -------------------------
+    dm <- Dim(object)
 
-        # build covariance data (assuming vector covariate for now)
-        make_lag0_data <- function(x, r) {
-          if(nrow(x) < 2)
-            return(NULL)
-          idx <- combn(seq_len(nrow(x)), 2)
-          d <- x[idx[1,], , drop = FALSE]
-          d[covnames_] <- x[idx[2, ], , drop = FALSE]
-          d$residuals2 <- combn(r, 2, prod)
-          d$diagonal <- 0
-          x[covnames_] <- x
-          x$residuals2 <- r^2
-          x$diagonal <- 1
-          rbind(d, x)
-        }
+    ## first estimate lag 0 covariance via corSmooth -------------------------
 
-        covariate_comb <- Map(function(x, r) {
-          art <- x[[ARtime]]
-          x <- split(x[covnames], art)
-          r <- split(r, art)
-          covco <- Map(make_lag0_data, x, r)
-          covco <- do.call(rbind, covco)
-        }, covariate, Residuals)
+    # set groups & Dim to inner lag 0 structure
+    attr(object, "groups") <- attr(object, "inner_groups")
+    attr(object, "Dim") <- attr(object, "inner_Dim")
 
-        covariate_comb <- do.call(rbind, covariate_comb)
+    val0 <- corMatrix.corSmooth(object)
+    ecoefs <- attr(val0, "coefficients")
+    sigma2 <- attr(val0, "sigma2noise")
 
-        # fit lag 0 covariance model
-        args <- as.list(attr(object, "s_args"))
-        args$xt <- as.list(args$xt)
-        args$xt$absorb.cons <- FALSE
-        kform <- as.formula(paste("residuals2 ~ 0 + s(",
-                                  paste(c(covnames, covnames_), collapse = ","),
-                                  ", bs = 'symm', xt = args$xt, k = args$k, m = args$m) + diagonal"))
+    # get design matrices transformed to the level of ecoefs$values
+    XU <- lapply( environment(attr(object, "solveLag1PLS"))$X, `%*%`, ecoefs$vectors)
 
-        if(is.null(attr(object, "model_prefit_lag0"))) {
-          k_pre <- gam(kform, data = covariate_comb, fit = FALSE)
-          # store prefit object
-          f <- attr(object, "lme_env")
-          if(!is.null(f$lmeSt))
-            attr(f$lmeSt$corStruct, "model_prefit_lag0") <- k_pre
-        } else {
-          k_pre <- attr(object, "model_prefit_lag0")
-          # update response
-          k_pre$y <- covariate_comb$residuals2
-        }
+    ## then estimate lag 1 covariance analogously -------------------------------
 
-        # fit model
-        k <- gam(G = k_pre, sp = head(coef(object, unconstrained = FALSE), length(covnames)) )
+    if(TRUE) { # Option 1: do complete fit and then project
+      coefs <- attr(object, "solveLag1PLS")(
+        sp = coef(object, unconstrained = FALSE),
+        y = Residuals
+      )
+      # project coefficients to the level of ecoefs$values for the transformed TP basis
+      coefs <- crossprod(ecoefs$vectors, coefs) %*% ecoefs$vectors
+    } else { # Option 2: first transform basis and then solve PLS without preparation
+      # get transformed penalty matrix
+      S <- lapply(attr(object, "smooth")$S, function(s)
+        crossprod(ecoefs$vectors, s) %*% ecoefs$vectors)
+      S <- tensor.prod.penalties(rep(S, 2))[[1]]
 
-        if(attr(object, "verbose")) {
-          opar <- par(mfrow = c(1,2))
-          plot(k, asp = 1, main = paste("Lag 0 Smoother penalty:", k$full.sp))
-        }
-        k <- force_non_negative(k)
-        if(attr(object, "verbose"))
-          cat("Eigenvalues:", attr(k, "eigen(coefMat)")$values)
+      XU2xXU1tXU2xXU1 <- array(0, dim = dim(S))
+      XU2xXU1tY2xY1 <- matrix(0, nrow = nrow(XU2xXU1tXU2xXU1))
+      for(i in seq_len(length(X) - 1)) {
+        XU2xXU1tXU2xXU1 <- XU2xXU1tXU2xXU1 + get_X2xX1tX2xX1(XU[[i]], XU[[i+1]])
+        XU2xXU1tY2xY1 <- XU2xXU1tY2xY1 + get_X2xX1tY2xY1(XU[[i]], XU[[i+1]], y[[i]], y[[i+1]])
+      }
 
-        if(coef(k)["diagonal"] < 0) {
-          # do Manuel Pfeuffer's positivity trick
-          # to ensure non-negative error variance
-          thisdiag <- which(names(coef(k)) == "diagonal")
-          sddiag <- sqrt(k$Vp[thisdiag, thisdiag])
-          # set to mean of normal truncated at 0
-          k$coefficients["diagonal"] <- k$coefficients["diagonal"] + 2*dnorm(0)*sddiag
-        }
-        if(attr(object, "verbose"))
-          cat(" --- Noise variance:", k$coefficients["diagonal"], "\n")
+      coefs <- matrix(solve(XU2xXU1tXU2xXU1 + coef(object, unconstrained = FALSE) * S,
+                            XU2xXU1tY2xY1),
+                      ncol = ncol(ecoefs$vectors))
+      }
 
-        # store model object
-        f <- attr(object, "lme_env")
-        if(!is.null(f$lmeSt)) {
-          attr(f$lmeSt$corStruct, "model_lag0") <- k
-        }
-
-      # get appropriate marginal design matrices needed for several purposes later
-        if(is.null(attr(object, "marginalDesign"))) {
-          marginalDesign <- lapply(covariate, function(covs) {
-            covs <- split(covs, covs[[ARtime]])
-            lapply(covs, Predict.matrix, object = k$smooth[[1]]$margin[[1]])
-          })
-
-          # basis orthogonalization
-          if(is.null(orthodat)) {
-            X <- do.call(rbind, lapply(marginalDesign, do.call, what = rbind))
-          } else {
-            X <- predict(k$smooth[[1]]$margin[[1]], newdata = orthodat)
-          }
-          R <- qr.R(qr(X))
-          attr(marginalDesign, "orthogonalizeDesign") <- solve(R)
-          attr(marginalDesign, "orthogonalizeDesign_inv") <- R
-
-          # store marginal design matrix
-          f <- attr(object, "lme_env")
-          if(!is.null(f$lmeSt))
-            attr(f$lmeSt$corStruct, "marginalDesign") <- marginalDesign
-        } else {
-          marginalDesign <- attr(object, "marginalDesign")
-        }
-
-        ## then estimate lag 1 covariance analogously -------------------------------
-browser()
-        ### manually fit lag 1 covariance model using the basis of the lag 0 model k
-        ## => use linear array model (Currie et al, 2006)
-        # get marginal design matrices of positive definite subspace of k
-        D <- attr(k, "eigen(coefMat)")$vectors
-        # Xm <- lapply(marginalDesign, lapply, function(x) x%*%D)
-        X <- lapply(marginalDesign, lapply, `%*%`, D)
-        S <- crossprod(D, k$smooth[[1]]$margin[[1]]$S[[1]]) %*% D
-        S <- tensor.prod.penalties(list(S, S))
-        sp <- numeric(2)
-        sp[] <- tail(coef(object, unconstrained = FALSE), length(covnames))
-        S <- sp[1]*S[[1]] + sp[2]*S[[2]]
-        # compute relevant quantities separately
-        XxX_XxX <- lapply(X,
-                          lapply, function(X) {
-                            crossprod(row_tensor_square(X))
-                          })
-        XxX_Y2xY1 <- Map(function(X, y, d) {
-          y <- split(y, d[[ARtime]])
-          Map( function(X1, X2, y1, y2) {
-            kronecker(crossprod(X2, y2), crossprod(X1, y1))}
-          , X[-length(X)], X[-1], y[-length(y)], y[-1])
-          }, X, Residuals, covariate)
-        # combine
-        XxX_XxX <- Reduce(`+`, unlist(XxX_XxX, FALSE))
-        XxX_Y2xY1 <- Reduce(`+`, unlist(XxX_Y2xY1, FALSE))
-
-        c1 <- solve(XxX_XxX + S, XxX_Y2xY1)
-
-        stop("Continue with new manual fitting of lag 1 variance here.")
-
-
-        # old version non-manually:
-
-        make_lag1_data <- function(x1, x2, r1, r2) {
-          dims <- c(nrow(x1), nrow(x2))
-          idx <- list(seq_len(dims[1]), seq_len(dims[2]))
-          idx <- expand.grid(V1 = idx[[1]],
-                             V2 = idx[[2]])
-          d <- cbind(x1[idx$V1, , drop = FALSE],
-                     structure(x2[idx$V2, , drop = FALSE], names = paste0(names(x2), "_")))
-
-          d$residuals2 <- kronecker(r2, r1)
-          attr(d, "dims") <- dims
-          d
-        }
-
-        grps <- split(grps, grps) # for reordering
-
-        covariate_comb <- Map(function(x, r, gr) {
-          art <- x[[ARtime]]
-          x$grps <- gr
-          x <- split(x, art)
-          r <- split(r, art)
-          covco <- Map(make_lag1_data,
-                       x1 = x[-length(x)], x2 = x[-1],
-                       r1 = r[-length(x)], r2 = r[-1])
-          dims <- lapply(covco, attr, "dims")
-          covco <- do.call(rbind, covco)
-          attr(covco, "dims") <- dims
-          covco
-        }, covariate, Residuals, grps)
-        cov_dims <- lapply(covariate_comb, attr, "dims")
-        covariate_comb <- do.call(rbind, covariate_comb)
-
-        args$k <- k_pre$smooth[[1]]$margin[[1]]$df
-
-browser()
-
-        # fit lag 1 covariance model
-          kform <- as.formula(paste("residuals2 ~ 0 + ti(",
-                                    paste(c(covnames, covnames_), collapse = ","),
-                                    ", bs = args$xt$bsmargin,
-                              k = args$k, m = args$m, mc = c(FALSE, FALSE))"))
-
-          if(is.null(attr(object, "model_prefit_lag1"))) {
-            k_pre1 <- gam(kform, data = covariate_comb, fit = FALSE)
-            # store prefit object
-            f <- attr(object, "lme_env")
-            if(!is.null(f$lmeSt))
-              attr(f$lmeSt$corStruct, "model_prefit_lag1") <- k_pre1
-          } else {
-            k_pre1 <- attr(object, "model_prefit_lag1")
-            # update response
-            k_pre1$y <- covariate_comb$residuals2
-          }
-
-          # fit model
-          k1 <- gam(G = k_pre1,
-                   sp = rep(tail(coef(object, unconstrained = FALSE), length(covnames)), 2) )
-
-          if(attr(object, "verbose")) {
-            plot(k1, asp = 1)
-            par(opar)
-          }
-
-          # store model object
-          f <- attr(object, "lme_env")
-          if(!is.null(f$lmeSt)) {
-            attr(f$lmeSt$corStruct, "model_lag1") <- k1
-          }
   } else {
 
     # covariate_comb (without residuals) is also required when not fitting
@@ -530,6 +401,7 @@ browser()
 
   attr(val, "factor") <- fac
   val
+
 }
 
 #' @import nlme

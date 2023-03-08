@@ -56,7 +56,7 @@ stopifnot(all.equal(c(coefs), c(coefs_)))
 
 # use constrained basis -------------------------------------------------
 Z <- sparseFLMM::make_summation_matrix(ncol(X))
-drsolve. <- get_demmlerreinsch_solver(XxXtXxX, S, Q)
+drsolve. <- get_demmlerreinsch_solver(XxXtXxX, S, Z)
 coefs. <- drsolve.(.1, XxXtYxY)
 
 coefs_trafo <- solve(crossprod(Z, XxXtXxX + .1*S) %*% Z, c(crossprod(Z, XxXtYxY)))
@@ -65,3 +65,41 @@ stopifnot(all.equal(c(coefs.), c(Z %*% coefs_trafo)))
 # a little bit more shrinkage seems to be applied with transformed basis?!?
 plot(coefs)
 points(coefs., pch = 4, col = "red")
+
+
+# test inner product of two matrices --------------------------------------
+
+X2 <- splines::bs(seq(0,1, len = 10), df = 6, degree = 1)
+matplot(X2, t = "l")
+
+X2xX1tX2xX1 <- get_X2xX1tX2xX1(X, X2)
+
+X2xX1 <- kronecker(X2, X)
+X2xX1tX2xX1_ <- crossprod(X2xX1)
+
+stopifnot(all.equal(X2xX1tX2xX1,X2xX1tX2xX1_))
+
+X2xX1tX2xX1. <- get_X2xX1tX2xX1_weighted(X, X2)
+
+stopifnot(all.equal(X2xX1tX2xX1.,X2xX1tX2xX1_))
+
+
+# test inner product of with Kronecker response ---------------------------
+
+y2 <- sample(y, length(y))
+
+X2xX1tY2xY1 <- get_X2xX1tY2xY1(X, X2, y, y2)
+
+X2xX1tY2xY1_ <- crossprod(X2xX1, kronecker(y2,y))
+
+stopifnot(all.equal(X2xX1tY2xY1, X2xX1tY2xY1_))
+
+# test solver with post hoc transformation matrix -------------------------
+
+drsolve_. <- get_demmlerreinsch_trafosolver(XxXtXxX, S)
+QR <- qr(Z)
+Q <- qr.Q(QR)
+coefs_. <- drsolve_.(.1, XxXtYxY, Q)
+
+all.equal(solve(crossprod(Q, XxXtXxX + .1*S) %*% Q) %*% crossprod(Q, XxXtYxY), matrix(coefs_., ncol =1))
+

@@ -73,11 +73,6 @@ row_tensor_square <- function(x) x[, rep(1:ncol(x), each = ncol(x)), drop = FALS
 corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr = TRUE,
                                 covariance = TRUE, ...) {
 
-  # get residuals
-  Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
-  if(is.null(Residuals))
-    Residuals <- c(attr(object, "get_residuals")())
-
   coefs <- attr(object, "coefficients")
   # check whether models needs to be refit
   refit <- is.null(coefs)
@@ -87,6 +82,11 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
   }
 
   if(refit) {
+    # get residuals
+    Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
+    if(is.null(Residuals))
+      Residuals <- c(attr(object, "get_residuals")())
+
     grps <- getGroups(object)
     if(!is.list(Residuals)) {
       Residuals <- split(Residuals, grps)
@@ -139,6 +139,8 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
       diag(x) <- diag(x) + sigma2
       x})
     attr(val, "sigma2noise") <- sigma2
+    # pass also coefficients for usage in e.g. corFunAR1
+    attr(val, "coefficients") <- ecoefs
 
     if(attr(object, "verbose"))
       cat(" --- Noise variance:", sigma2, "\n")
@@ -189,7 +191,6 @@ corFactor.corSmooth <- function(object, ...) {
   corMatrix(object, ..., corr = FALSE)
 }
 
-
 #' @param X marginal design matrix of \code{kronecker(X, X)}.
 #' @param W matrix containing diagonal of diagonal weight matrix of the kronecker design.
 #' Default: zero weights on diagonal and elsewhere one.
@@ -201,9 +202,6 @@ get_XxXtXxX <- function(X, W = 1- diag(nrow = nrow(X)), RX = row_tensor_square(X
   matrix(aperm(XxXtXxX_, c(1,3,2,4)), ncol = ncol(RX))
 }
 
-
-#' Title
-#'
 #' @param X marginal designmatrix in \code{kronecker{X,X}}.
 #' @param Y marginal response in \code{kronecker{Y,Y}} minus diagonal.
 #'
@@ -214,8 +212,6 @@ get_XxXtYxY_noDiag <- function(X, Y, RX = row_tensor_square(X)) {
   kronecker(XtY, XtY) - crossprod(RX, Y^2) # subtract diagonal
 }
 
-#' Title
-#'
 #' @param XtX inner product matrix of design matrix columns
 #' @param S penalty matrix
 #' @param XtX_trafo a basis transformation matrix for restricting to a subspace

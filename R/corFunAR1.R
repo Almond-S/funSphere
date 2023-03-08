@@ -118,18 +118,25 @@ Initialize.corFunAR1 <- function(object, data, ...) {
 
   ngroups <- length(getGroupsFormula(object, TRUE))
   attr(object, "groups") <- if(ngroups>1)
-    getGroups(data, formula(object), level = ngroups - 1)
-  attr(object, "Dim") <- if(ngroups>1)
-    Dim(object, attr(object, "groups")) else
-      Dim(object, factor(rep(1, attr(object, "lag0Dim")$N)))
+    getGroups(data, formula(object), level = ngroups - 1) else
+      factor(rep(1, attr(object, "lag0Dim")$N))
+  attr(object, "Dim") <- Dim(object, attr(object, "groups"))
+  attr(object, "groups") <- ordered(attr(object, "groups"),
+                                    levels = unique(attr(object, "groups")))
 
-  browser()
+  grouptable <- split(attr(object, "groups"), attr(object, "inner_groups"))
+  grouptable <- sapply(grouptable, function(x) as.character(x[1]))
+  grouptable <- ordered(grouptable, levels = unique(grouptable))
+  attr(object, "grouptable") <- grouptable
+
   e <- environment(attr(object, "solvePLS"))
-  X <- e$X
+  # re-organize list of design matrices into groups
+  X <- split(e$X, grouptable)
   S <- e$S
-  RX <- e$RX
-  nrowX <- sapply(X, nrow)
+  nrowX <- lapply(X, sapply, nrow)
   ncolX <- sqrt(ncol(S))
+
+  ### TODO: GET TEMPORAL ORDER STRAIGHT HERE!!!!
 
   X2xX1tX2xX1 <- array(0, dim = dim(S))
   for(i in seq_len(length(X) - 1)) {
@@ -183,10 +190,6 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
       Residuals <- c(attr(object, "get_residuals")())
 
     grps <- getGroups(object)
-    if(!is.list(Residuals)) {
-      Residuals <- split(Residuals, grps)
-    }
-
     dm <- Dim(object)
 
     ## first estimate lag 0 covariance via corSmooth -------------------------
@@ -202,7 +205,14 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     # get design matrices transformed to the level of ecoefs$values
     XU <- lapply( environment(attr(object, "solveLag1PLS"))$X, `%*%`, ecoefs$vectors)
 
-    ## then estimate lag 1 covariance analogously -------------------------------
+    ## reorganize into groups ------------------------------------------------
+
+    gt <- attr(object, "grouptable")
+    Residuals <- split(Residuals, gt)
+    val0 <- split(val0, gt)
+    XU <- split(XU, gt)
+
+    ## then estimate lag 1 covariance analogously ----------------------------
 
     if(TRUE) { # Option 1: do complete fit and then project
       coefs <- attr(object, "solveLag1PLS")(
@@ -227,7 +237,50 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
       coefs <- matrix(solve(XU2xXU1tXU2xXU1 + coef(object, unconstrained = FALSE) * S,
                             XU2xXU1tY2xY1),
                       ncol = ncol(ecoefs$vectors))
+    } # end coefficient computation
+
+    browser()
+    # get estimated lag 1 covariance surfaces
+    val1 <- Map(function(X1, X2) X1 %*% tcrossprod(coefs, X2),
+                XU[-length(XU)], XU[-1])
+
+    # extend to overlapping blocks
+    val01 <- list()
+    for(i in seq_along(val1)) {
+      val01[[i]] <- list()
+      for(j in seq_along(val1[[i]])) {
+        val01[[i]][[j]] <- rbind(
+          cbind(val0[[i]][[j]], val1[[i]][[j]]),
+          cbind(t(val1[[i]][[j]]), val0[[i]][[j+1]])
+        )
       }
+    }
+
+
+  # compute precision matrix ------------------------------------------------
+
+    # compute inverse variance matrices
+    my_solve <- function(x) {
+      x_ <- try(solve(x, silent = TRUE))
+      if(inherits(x_, "try-error"))
+        x_ <- ginv(x)
+      x_
+    }
+
+    grp_ids <- structure(seq_along(val1), names = names(val1))
+    precision <- Map(function(id) {
+      dims0 <- sapply(val0[[id]], nrow)
+      M <- bandSparse(n = sum(dims0), k = 0:max(dims0), diagonals = lapply(sum(dims0) - 0:max(dims0), rep, x = 0), symmetric = TRUE)
+      this <- cumsum(c(1,dims0))
+      for(i in seq_along(val01[[id]])) {
+        M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] <- M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] + my_solve(val01[[id]][[i]])
+
+        if(i > 0) {
+          M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] <- M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] +  my_solve(val0[[id]][[i]])
+        }
+      }
+      forceSymmetric(M)
+    }, grp_ids)
 
   } else {
 
@@ -262,51 +315,7 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     covariate_comb <- do.call(rbind, covariate_comb)
   }
 
-  # obtain fitted values for lag 0 --------------
 
-  # extract design and coefficient matrices
-  c0 <- if(refit) k$coefficients else attr(object, "model_lag0")$coefficients
-  Z <- if(refit) k$smooth[[1]]$Z else attr(object, "model_lag0")$smooth[[1]]$Z
-  c0 <- list(smooth = Z%*%c0[-1], nugget = c0[1])
-  c0$smooth <- matrix(c0$smooth, ncol = sqrt(length(c0$smooth)))
-
-  get_lag0_fit <- function(X) {
-    # return prediction
-    pred <- X %*% tcrossprod(c0$smooth, X)
-    diag(pred) <- diag(pred) + c0$nugget
-    pred
-  }
-
-  val0 <- lapply(marginalDesign, function(x) {
-    # return inner list of covariance matrices
-    lapply(x, get_lag0_fit)
-  })
-
-
-  # obtain fitted values for lag 1 ---------
-
-  covariate_comb$fitted.values <- if(refit) k1$fitted.values else
-    attr(object, "model_lag1")$fitted.values
-
-  val1 <- split(covariate_comb,
-                paste(covariate_comb$grps, covariate_comb$grps_))
-  val1 <- Map(function(x, dims) {
-    x <- split(x, paste(x[[ARtime]], x[[paste(ARtime, "_")]]))
-    Map(function(x, dims) matrix(x$fitted.values, nrow = dims[1], ncol = dims[2]),
-        x, dims)
-  }, val1, cov_dims)
-
-  # extend to overlapping blocks
-  val01 <- list()
-  for(i in seq_along(val1)) {
-    val01[[i]] <- list()
-    for(j in seq_along(val1[[i]])) {
-      val01[[i]][[j]] <- rbind(
-        cbind(val0[[i]][[j]], val1[[i]][[j]]),
-        cbind(t(val1[[i]][[j]]), val0[[i]][[j+1]])
-        )
-    }
-  }
 
   ## compute factor and determinant
   # => to do so: compute precision matrix

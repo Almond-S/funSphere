@@ -19,9 +19,9 @@
 corFunAR1 <- function(value = 0, form = ~ 1, fixed = FALSE, # first: version with same smoothing parameter for auto- and cross-covariance
                       working_correlation = corCAR1,
                       working_control = list(), verbose = FALSE) {
-    # store original formula
-  form0 <- form
 
+  ## handle formula: store original and create formula without time
+  form0 <- form
   # and remove the AR time
   l1 <- length(form)
   l2 <- length(form[[l1]])
@@ -39,9 +39,9 @@ corFunAR1 <- function(value = 0, form = ~ 1, fixed = FALSE, # first: version wit
   ARform[[2]] <- ARtime
   attr(value, "ARformula") <- ARform
   attr(value, "ARtime") <- as.character(ARtime)
-
   attr(value, "lme_formula") <- form
 
+  # Initialize corSmooth for lag 0 covariances
   value <- corSmooth(value, working_correlation = working_correlation,
              working_control = working_control,
              form = form0, fixed = fixed, verbose = verbose)
@@ -109,38 +109,51 @@ get_X2xX1tY2xY1 <- function(X1, X2, Y1, Y2) {
 #'
 Initialize.corFunAR1 <- function(object, data, ...) {
 
-  # first initialize covariance smoothing
+  ## first initialize covariance smoothing for lag 0 covariances
   object <- NextMethod()
 
-  # change groups and Dim to truly independent groups
+  ## change groups and Dim to truly independent groups
   attr(object, "inner_groups") <- attr(object, "groups")
   attr(object, "inner_Dim") <- attr(object, "Dim")
-
   ngroups <- length(getGroupsFormula(object, TRUE))
-  attr(object, "groups") <- if(ngroups>1)
+  grps <-  if(ngroups>1)
     getGroups(data, formula(object), level = ngroups - 1) else
       factor(rep(1, attr(object, "lag0Dim")$N))
-  attr(object, "Dim") <- Dim(object, attr(object, "groups"))
-  attr(object, "groups") <- ordered(attr(object, "groups"),
-                                    levels = unique(attr(object, "groups")))
+  attr(object, "groups") <- grps <- ordered(grps,
+                                    levels = unique(grps))
+  attr(object, "Dim") <- Dim(object, grps)
 
-  grouptable <- split(attr(object, "groups"), attr(object, "inner_groups"))
+  # store information which inner_group belongs to which group
+  grouptable <- split(grps, attr(object, "inner_groups"))
   grouptable <- sapply(grouptable, function(x) as.character(x[1]))
   grouptable <- ordered(grouptable, levels = unique(grouptable))
   attr(object, "grouptable") <- grouptable
 
+  # get AR time grid splitted into groups
+  tgrid <- model.frame(attr(object, "ARformula"), data)[[1]]
+  if(any(as.integer(tgrid) != tgrid))
+    stop(paste("The AR process time variable ", attr(object, "ARtime"), " must be integer valued.", sep = "'"))
+  tgrid <- as.integer(tgrid)
+  tgrid <- split(tgrid, attr(object, "groups"))
+  tgrid <- lapply(names(tgrid), function(x) paste(x, min(tgrid[[x]]):max(tgrid[[x]]), sep = "/"))
+  attr(object, "ARtimegrid") <- tgrid
+
   e <- environment(attr(object, "solvePLS"))
   # re-organize list of design matrices into groups
-  X <- split(e$X, grouptable)
+  # X <- split(e$X, grouptable)
+  X <- e$X
   S <- e$S
-  nrowX <- lapply(X, sapply, nrow)
   ncolX <- sqrt(ncol(S))
 
-  ### TODO: GET TEMPORAL ORDER STRAIGHT HERE!!!!
+  attr(object, "findTime") <- . <- function(x, group, time) x[[tgrid[[group]][[time]]]]
 
   X2xX1tX2xX1 <- array(0, dim = dim(S))
-  for(i in seq_len(length(X) - 1)) {
-    X2xX1tX2xX1 <- X2xX1tX2xX1 + get_X2xX1tX2xX1(X[[i]], X[[i+1]])
+  for(g in seq_along(tgrid)) {
+    for(i in seq_len(length(tgrid[[g]]) - 1)) {
+      if(!is.null(.(X, g, i)) & !is.null(.(X, g, i+1)))
+        X2xX1tX2xX1 <- X2xX1tX2xX1 + get_X2xX1tX2xX1(
+          .(X, g, i), .(X, g, i+1))
+    }
   }
 
   DRsolve2 <- get_demmlerreinsch_solver(X2xX1tX2xX1, S)
@@ -151,15 +164,53 @@ Initialize.corFunAR1 <- function(object, data, ...) {
     # compute "Xy"
     X2xX1tY2xY1 <- matrix(0, nrow = nrow(X2xX1tX2xX1))
     # again omit X with only one observation
-    for(i in seq_len(length(X) - 1)) {
-      X2xX1tY2xY1 <- X2xX1tY2xY1 + get_X2xX1tY2xY1(X[[i]], X[[i+1]], y[[i]], y[[i+1]])
+    for(g in seq_along(tgrid)) {
+      for(i in seq_len(length(tgrid[[g]]) - 1)) {
+        if(!is.null(.(X, g, i)) & !is.null(.(X, g, i+1)))
+          X2xX1tY2xY1 <- X2xX1tY2xY1 + get_X2xX1tY2xY1(
+            .(X, g, i), .(X, g, i+1),
+            .(y, g, i), .(y, g, i+1))
+      }
     }
     # solve PLS to get coefficient matrix
-    matrix(DRsolve2(sp, X2xX1tY2xY1), ncol = ncolX, nrow = ncolX)
+    matrix(DRsolve2(sp, X2xX1tY2xY1), ncol = ncolX)
   }
 
   object
 }
+
+#' Inversion of 2x2 block matrix
+#'
+#' @param M list of matrices of \code{dim(M) == 2} with matching columns / rows
+#' @param Dinv list of inverses of \code{M[[1,1]]} and \code{M[[2,2]]} in that order.
+#'
+#' @export
+blockinv <- function(M, .solve = solve, Dinv = lapply(M[c(1,4)], .solve)) {
+  R <- list()
+  R[[1]] <- .solve(M[[1,1]] - M[[1,2]] %*% Dinv[[2]] %*% M[[2,1]])
+  R[[4]] <- .solve(M[[2,2]] - M[[2,1]] %*% Dinv[[1]] %*% M[[1,2]])
+  R[[2]] <- - R[[4]] %*% M[[2,1]] %*% Dinv[[1]]
+  R[[3]] <- - R[[1]] %*% M[[1,2]] %*% Dinv[[2]]
+  dim(R) <- c(2,2)
+  R
+  }
+
+#' Inversion of symmetric 2x2 block matrix
+#'
+#' @param bdiag list of two square matrices \code{dim(M) == 2} forming the block diagonal
+#' @param odiag matrix with \code{nrow(odiag) == nrow(bdiag[[1]])} and
+#' \code{ncol(odiag) == ncol(bdiag[[2]])} forming the off diagonal block
+#' @param bdiaginv list of inverses of \code{bdiag} (to allow their pre-computation).
+#'
+#' @export
+blockinv_symm <- function(bdiag, odiag, .solve = solve, bdiaginv = lapply(bdiag, .solve)) {
+  ret <- list(bdiag = list())
+  ret$bdiag[[1]] <- .solve(bdiag[[1]] - odiag %*% tcrossprod( bdiaginv[[2]], odiag ))
+  ret$bdiag[[2]] <- .solve(bdiag[[2]] - crossprod(odiag, bdiaginv[[1]]) %*% odiag)
+  ret$odiag <- - ret$bdiag[[1]] %*% odiag %*% bdiaginv[[2]]
+  ret
+}
+
 
 #' @export
 #' @import mgcv nlme Matrix
@@ -207,10 +258,14 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
 
     ## reorganize into groups ------------------------------------------------
 
-    gt <- attr(object, "grouptable")
-    Residuals <- split(Residuals, gt)
-    val0 <- split(val0, gt)
-    XU <- split(XU, gt)
+    # gt <- attr(object, "grouptable")
+    # Residuals <- split(Residuals, gt)
+    # val0 <- split(val0, gt)
+    # XU <- split(XU, gt)
+
+    # find inner_group in group corresponding to time
+    tgrid <- attr(object, "ARtimegrid")
+    . <- attr(object, "findTime")
 
     ## then estimate lag 1 covariance analogously ----------------------------
 
@@ -229,9 +284,13 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
 
       XU2xXU1tXU2xXU1 <- array(0, dim = dim(S))
       XU2xXU1tY2xY1 <- matrix(0, nrow = nrow(XU2xXU1tXU2xXU1))
-      for(i in seq_len(length(X) - 1)) {
-        XU2xXU1tXU2xXU1 <- XU2xXU1tXU2xXU1 + get_X2xX1tX2xX1(XU[[i]], XU[[i+1]])
-        XU2xXU1tY2xY1 <- XU2xXU1tY2xY1 + get_X2xX1tY2xY1(XU[[i]], XU[[i+1]], y[[i]], y[[i+1]])
+      for(g in seq_along(tgrid))
+      for(i in seq_len(length(tgrid[[g]]) - 1)) {
+        if(!is.null(.(X, g, i)) & !is.null(.(X, g, i+1))) {
+          XU2xXU1tXU2xXU1 <- XU2xXU1tXU2xXU1 + get_X2xX1tX2xX1(.(XU, g, i), .(XU, g, i+1))
+          XU2xXU1tY2xY1 <- XU2xXU1tY2xY1 + get_X2xX1tY2xY1(.(XU, g, i), .(XU, g, i+1),
+                                                           .(y, g, i), .(y, g, i+1))
+        }
       }
 
       coefs <- matrix(solve(XU2xXU1tXU2xXU1 + coef(object, unconstrained = FALSE) * S,
@@ -239,25 +298,35 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
                       ncol = ncol(ecoefs$vectors))
     } # end coefficient computation
 
-    browser()
+    # store eigen decomposition of coefficients
+    f <- attr(object, "lme_env")
+    if(!is.null(f$lmeSt))
+      attr(f$lmeSt$corStruct, "coefficients_lag1") <- coefs
+
     # get estimated lag 1 covariance surfaces
-    val1 <- Map(function(X1, X2) X1 %*% tcrossprod(coefs, X2),
-                XU[-length(XU)], XU[-1])
-
-    # extend to overlapping blocks
-    val01 <- list()
-    for(i in seq_along(val1)) {
-      val01[[i]] <- list()
-      for(j in seq_along(val1[[i]])) {
-        val01[[i]][[j]] <- rbind(
-          cbind(val0[[i]][[j]], val1[[i]][[j]]),
-          cbind(t(val1[[i]][[j]]), val0[[i]][[j+1]])
-        )
-      }
-    }
+    val1 <- lapply(seq_along(tgrid), function(g) {
+      lapply(seq_len(length(tgrid[[g]])-1), function(i) {
+        if(!is.null(.(XU, g, i)) & !is.null(.(XU, g, i+1)))
+          .(XU, g, i) %*% tcrossprod(coefs, .(XU, g, i+1))
+      })
+    })
 
 
-  # compute precision matrix ------------------------------------------------
+    # # extend to overlapping blocks
+    # val01 <- list()
+    # for(i in seq_along(val1)) {
+    #   val01[[i]] <- list()
+    #   for(j in seq_along(val1[[i]])) {
+    #     val01[[i]][[j]] <- rbind(
+    #       cbind(.(val0, i, j), val1[[i]][[j]]),
+    #       cbind(t(val1[[i]][[j]]), .(val0, i, j+1))
+    #     )
+    #   }
+    # }
+
+  if(!corr) {
+
+    # compute precision matrix ------------------------------------------------
 
     # compute inverse variance matrices
     my_solve <- function(x) {
@@ -267,150 +336,127 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
       x_
     }
 
-    grp_ids <- structure(seq_along(val1), names = names(val1))
-    precision <- Map(function(id) {
-      dims0 <- sapply(val0[[id]], nrow)
-      M <- bandSparse(n = sum(dims0), k = 0:max(dims0), diagonals = lapply(sum(dims0) - 0:max(dims0), rep, x = 0), symmetric = TRUE)
-      this <- cumsum(c(1,dims0))
-      for(i in seq_along(val01[[id]])) {
-        M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] <- M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] + my_solve(val01[[id]][[i]])
+    tlens <- lapply(tgrid, function(g) {
+      l <- Dim(object)$len[g]
+      names(l) <- g
+      l[is.na(l)] <- 0
+      l
+      })
 
-        if(i > 0) {
-          M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] <- M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] +  my_solve(val0[[id]][[i]])
-        }
-      }
-      forceSymmetric(M)
-    }, grp_ids)
+    prec0 <- structure(
+      lapply(seq_along(tgrid), function(tg) {
+      structure(
+        lapply(seq_along(tgrid[[tg]]), function(i) my_solve(.(val0, tg, i))),
+        names = tgrid[[tg]])
+    }), names = names(tgrid))
 
-  } else {
+    .. <- function(x, group, times) x[tgrid[[group]][times]]
 
-    # covariate_comb (without residuals) is also required when not fitting
-
-    make_lag1_data <- function(x1, x2) {
-      dims <- c(nrow(x1), nrow(x2))
-      idx <- list(seq_len(dims[1]), seq_len(dims[2]))
-      idx <- expand.grid(V1 = idx[[1]],
-                         V2 = idx[[2]])
-      d <- cbind(x1[idx$V1, , drop = FALSE],
-                 structure(x2[idx$V2, , drop = FALSE], names = paste0(names(x2), "_")))
-
-      attr(d, "dims") <- dims
-      d
-    }
-
-    grps <- split(grps, grps) # for reordering
-
-    covariate_comb <- Map(function(x, gr) {
-      art <- x[[ARtime]]
-      x$grps <- gr
-      x <- split(x, art)
-      covco <- Map(make_lag1_data,
-                   x1 = x[-length(x)], x2 = x[-1])
-      dims <- lapply(covco, attr, "dims")
-      covco <- do.call(rbind, covco)
-      attr(covco, "dims") <- dims
-      covco
-    }, covariate, grps)
-    cov_dims <- lapply(covariate_comb, attr, "dims")
-    covariate_comb <- do.call(rbind, covariate_comb)
-  }
-
-
-
-  ## compute factor and determinant
-  # => to do so: compute precision matrix
-
-  # compute inverse variance matrices
-  my_solve <- function(x) {
-    x_ <- try(solve(x, silent = TRUE))
-    if(inherits(x_, "try-error"))
-      x_ <- ginv(x)
-    x_
-  }
-
-  grp_ids <- structure(seq_along(val1), names = names(val1))
-  precision <- Map(function(id) {
-    dims0 <- sapply(val0[[id]], nrow)
-    M <- bandSparse(n = sum(dims0), k = 0:max(dims0), diagonals = lapply(sum(dims0) - 0:max(dims0), rep, x = 0), symmetric = TRUE)
-    this <- cumsum(c(1,dims0))
-    for(i in seq_along(val01[[id]])) {
-      M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] <- M[this[i]:(this[i+2]-1), this[i]:(this[i+2]-1)] + my_solve(val01[[id]][[i]])
-
-      if(i > 0) {
-        M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] <- M[this[i]:(this[i+1]-1), this[i]:(this[i+1]-1)] +  my_solve(val0[[id]][[i]])
+    prec_diag <- prec0; prec_odiag <- val1
+    for(g in 1:length(tgrid)) {
+      for(i in 1:length(val1[[g]])) {
+        M <- blockinv_symm(..(val0, g, i:(i+1)), val1[[g]][[i]],
+                           .solve = my_solve, bdiaginv = prec0[[g]][i:(i+1)])
+        prec_odiag[[g]][[i]][] <- M$odiag
+        prec_diag[[g]][[i+1]][] <- M$bdiag[[2]]
+        if(i == 1)
+          prec_diag[[g]][[i]][] <- M$bdiag[[1]] else
+            prec_diag[[g]][[i]][] <- prec_diag[[g]][[i]] + M$bdiag[[1]] - prec0[[g]][[i]]
       }
     }
-    forceSymmetric(M)
-  }, grp_ids)
 
-  # so far covariance/correlation matrix not returned
-  fac <- lapply(precision, function(x) {
-    ret <- try(as.matrix(chol(x)), silent = TRUE)
-    if(inherits(ret, "try-error")) {
-        xe <- eigen(x)
-        xe$values[xe$values < 0] <- 0
-        ret <- xe$values * t(xe$vectors)
+    # precision still arranged like tgrid => re-arrange to data format and combine to matrix
+    gt <- attr(object, "grouptable")
+    dim0 <- lapply(lapply(split(sapply(val0, nrow), gt), append, 0, 0), cumsum)
+    idx <- function(g, i) {
+      this <- which(names(dim0[[g]]) == tgrid[[g]][i])
+      (dim0[[g]][this-1]+1):dim0[[g]][this]
     }
-    ret
-    })
-  attr(fac, "logDet") <- sum(sapply(precision, function(x) {
-    dt <- det(x)
-    if(dt < .Machine$double.eps) 0 else log(dt) # compute log determinant of covariance matrix
-  }))
+    namesval0 <- split(names(val0), gt)
+    browser()
 
-  if(!corr)
+    precision <- list()
+    for(g in 1:length(tgrid)) {
+      precision[[g]] <- bdiag(prec_diag[[g]][namesval0[[g]]])
+      for(i in 1:(length(tgrid[[g]])-1)) {
+        id <- list(idx(g, i), idx(g, i+1))
+        id <- id[order(sapply(id, `[`, 1))]
+        precision[[g]][id[[1]], id[[2]]] <- prec_odiag[[g]][[i]]
+      }
+      precision[[g]] <- forceSymmetric(precision[[g]])
+    }
+
+  # obtain 'Cholesky' factor ------------------------------------------------
+
+    e <- lapply(precision, eigen, symmetric = TRUE)
+    e$values <- pmin(x$values, 1/sigma2)
+    e$values <- pmax(x$values, 0) # get better lower bound
+    fac <- lapply(e, function(x) sqrt() * t(x$vectors))
+    # log determinant of factor
+    lD <- -1/2*sum(log(unlist(lapply(e, `[[`, "values"))))
+    attr(fac, "logDet") <- lD
+
+    fac
+
+    # store eigen decomposition of coefficients
+    f <- attr(object, "lme_env")
+    if(!is.null(f$lmeSt))
+      attr(f$lmeSt$corStruct, "fac") <- fac
+
     return(fac)
+  } else { # now if(corr)
 
-  # otherwise complete covariance matrix
+    # otherwise complete covariance matrix ------------------------------------
 
-  c1 <- if(refit) matrix(k1$coefficients, ncol = sqrt(length(k1$coefficients))) else
-    matrix(attr(object, "model_lag1")$coefficients,
-           ncol = sqrt(length(attr(object, "model_lag1")$coefficients)))
-  # get coefficients of orthogonal basis
-  A0_ <- my_solve(attr(marginalDesign, "orthogonalizeDesign_inv") %*% tcrossprod(
-    c0$smooth, attr(marginalDesign, "orthogonalizeDesign_inv") ))
+    # get coefficients of orthogonal basis
+    A0_ <- my_solve(attr(marginalDesign, "orthogonalizeDesign_inv") %*% tcrossprod(
+      c0$smooth, attr(marginalDesign, "orthogonalizeDesign_inv") ))
 
-  A <- list()
-  A1_right <- tcrossprod( c1, attr(marginalDesign, "orthogonalizeDesign_inv") )
-  # A1_left:
-  A[[1]] <- attr(marginalDesign, "orthogonalizeDesign_inv") %*% c1
-  Alpha <- A0_ %*% A1_right
+    A <- list()
+    A1_right <- tcrossprod( c1, attr(marginalDesign, "orthogonalizeDesign_inv") )
+    # A1_left:
+    A[[1]] <- attr(marginalDesign, "orthogonalizeDesign_inv") %*% c1
+    Alpha <- A0_ %*% A1_right
 
-  maxARtime <- max(sapply(val0, length))
-  i <- 2
-  while(i < maxARtime) {
-    A[[i]] <- A[[i-1]] %*% Alpha
-    i <- i+1
-  }
-
-  A[[1]] <- c1
-
-  complete_cov <- function(v0, v1, Xs) {
-    dims0 <- sapply(Xs, nrow)
-    # make matrix of matrices
-    dimslong <- expand.grid(nr = dims0, nc = dims0)
-    M <- matrix(
-      apply(dimslong, 1, function(x) matrix(nrow = x[1], ncol = x[2]), simplify = FALSE),
-      nrow = length(dims0), ncol = length(dims0))
-    # fill matrix
-    diag(M) <- v0
-    for(i in seq_along(v1)) {
-      M[[i,i+1]] <- v1[[i]]; M[[i+1,i]] <- t(v1[[i]]) }
-    k <- 2 #start at second off-diagonal
-    while(k < ncol(M)) {
-      for(i in seq_len(ncol(M)-k)) {
-        M[[i, i+k]][] <- Xs[[i]] %*% tcrossprod( A[[k]], Xs[[i+k]] )
-        M[[i+k, i]][] <- t(M[[i, i+k]])
-      }
-      k <- k+1
+    maxARtime <- max(sapply(val0, length))
+    i <- 2
+    while(i < maxARtime) {
+      A[[i]] <- A[[i-1]] %*% Alpha
+      i <- i+1
     }
-    do.call(rbind, lapply(1:nrow(M), function(i) do.call(cbind, M[i, ])))
+
+    A[[1]] <- c1
+
+    complete_cov <- function(v0, v1, Xs) {
+      dims0 <- sapply(Xs, nrow)
+      # make matrix of matrices
+      dimslong <- expand.grid(nr = dims0, nc = dims0)
+      M <- matrix(
+        apply(dimslong, 1, function(x) matrix(nrow = x[1], ncol = x[2]), simplify = FALSE),
+        nrow = length(dims0), ncol = length(dims0))
+      # fill matrix
+      diag(M) <- v0
+      for(i in seq_along(v1)) {
+        M[[i,i+1]] <- v1[[i]]; M[[i+1,i]] <- t(v1[[i]]) }
+      k <- 2 #start at second off-diagonal
+      while(k < ncol(M)) {
+        for(i in seq_len(ncol(M)-k)) {
+          M[[i, i+k]][] <- Xs[[i]] %*% tcrossprod( A[[k]], Xs[[i+k]] )
+          M[[i+k, i]][] <- t(M[[i, i+k]])
+        }
+        k <- k+1
+      }
+      do.call(rbind, lapply(1:nrow(M), function(i) do.call(cbind, M[i, ])))
+    }
+    val <- Map(complete_cov, val0, val1, marginalDesign)
+
+    val
+    }
+  } else { # i.e. if(!refit)
+
+    if(corr) attr(object, "covariance") else
+      attr(object, "fac")
   }
-  val <- Map(complete_cov, val0, val1, marginalDesign)
-
-  attr(val, "factor") <- fac
-  val
-
 }
 
 #' @import nlme

@@ -94,12 +94,29 @@ X2xX1tY2xY1_ <- crossprod(X2xX1, kronecker(y2,y))
 
 stopifnot(all.equal(X2xX1tY2xY1, X2xX1tY2xY1_))
 
-# test solver with post hoc transformation matrix -------------------------
+# test block inversion ----------------------------------------------------
 
-drsolve_. <- get_demmlerreinsch_trafosolver(XxXtXxX, S)
-QR <- qr(Z)
-Q <- qr.Q(QR)
-coefs_. <- drsolve_.(.1, XxXtYxY, Q)
+set.seed(3490)
+M <- sample(1:25, 25)
 
-all.equal(solve(crossprod(Q, XxXtXxX + .1*S) %*% Q) %*% crossprod(Q, XxXtYxY), matrix(coefs_., ncol =1))
+M <- list(matrix(M[1:9], ncol = 3), matrix(M[10:15], ncol = 3),
+          matrix(M[16:21], nrow = 3), matrix(M[22:25], ncol = 2))
+dim(M) <- c(2,2)
+M_ <- blockinv(M, Dinv = lapply(M[c(1,4)], solve))
+
+N <- do.call(rbind, apply(M, 1, do.call, what = cbind))
+N_ <- solve(N)
+all.equal(N_[1:3,1:3], M_[[1,1]])
+all.equal(N_[1:3,4:5], M_[[1,2]])
+all.equal(N_[4:5,1:3], M_[[2,1]])
+all.equal(N_[4:5,4:5], M_[[2,2]])
+
+# ... and symmetric version
+M[[2,1]] <- t(M[[1,2]])
+M. <- blockinv_symm(bdiag = list(M[[1,1]], M[[2,2]]), odiag = M[[1,2]])
+M_ <- blockinv(M)
+all.equal(M_[[1,1]], M.$bdiag[[1]])
+all.equal(M_[[2,2]], M.$bdiag[[2]])
+all.equal(M_[[1,2]], M.$odiag)
+
 

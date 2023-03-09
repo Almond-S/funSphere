@@ -10,6 +10,8 @@ dat$Time <- dat$Time + rnorm(nrow(dat), sd = .1*sd(dat$Time))
 # the time series time (only three different times but hopefully enough for a starter)
 dat$Year <- as.integer(dat$Year)
 
+dat <- dat[order(dat$Time), ]
+
 cs <- corFunAR1(form = weight ~ s(Time) | Variety / Year)
 attr(cs, "lme_formula")
 
@@ -21,7 +23,7 @@ cs <- Initialize(cs, dat)
 car <- corCAR1(form = ~ Time)
 car <- Initialize(car, dat)
 
-FunMat <- corMatrix(cs, corr = T)
+FunMat <- corMatrix(cs, corr = F)
 Matrix::image(crossprod(FunMat[[1]]))
 persp(crossprod(FunMat[[1]]))
 

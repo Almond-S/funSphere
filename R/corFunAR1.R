@@ -266,6 +266,14 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     # find inner_group in group corresponding to time
     tgrid <- attr(object, "ARtimegrid")
     . <- attr(object, "findTime")
+    gt <- attr(object, "grouptable")
+
+    dim0 <- lapply(lapply(split(sapply(val0, nrow), gt), append, 0, 0), cumsum)
+    idx <- function(g, i) {
+      this <- which(names(dim0[[g]]) == tgrid[[g]][i])
+      (dim0[[g]][this-1]+1):dim0[[g]][this]
+    }
+    namesval0 <- split(names(val0), gt)
 
     ## then estimate lag 1 covariance analogously ----------------------------
 
@@ -366,15 +374,6 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     }
 
     # precision still arranged like tgrid => re-arrange to data format and combine to matrix
-    gt <- attr(object, "grouptable")
-    dim0 <- lapply(lapply(split(sapply(val0, nrow), gt), append, 0, 0), cumsum)
-    idx <- function(g, i) {
-      this <- which(names(dim0[[g]]) == tgrid[[g]][i])
-      (dim0[[g]][this-1]+1):dim0[[g]][this]
-    }
-    namesval0 <- split(names(val0), gt)
-    browser()
-
     precision <- list()
     for(g in 1:length(tgrid)) {
       precision[[g]] <- bdiag(prec_diag[[g]][namesval0[[g]]])
@@ -387,16 +386,15 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     }
 
   # obtain 'Cholesky' factor ------------------------------------------------
-
     e <- lapply(precision, eigen, symmetric = TRUE)
-    e$values <- pmin(x$values, 1/sigma2)
-    e$values <- pmax(x$values, 0) # get better lower bound
-    fac <- lapply(e, function(x) sqrt() * t(x$vectors))
+    for(g in seq_along(e)) {
+      e[[g]]$values <- pmin(e[[g]]$values, 1/sigma2)
+      e[[g]]$values <- pmax(e[[g]]$values, 0) # get better lower bound
+    }
+    fac <- lapply(e, function(x) sqrt(x$values) * t(x$vectors))
     # log determinant of factor
     lD <- -1/2*sum(log(unlist(lapply(e, `[[`, "values"))))
     attr(fac, "logDet") <- lD
-
-    fac
 
     # store eigen decomposition of coefficients
     f <- attr(object, "lme_env")
@@ -408,26 +406,19 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
 
     # otherwise complete covariance matrix ------------------------------------
 
-    # get coefficients of orthogonal basis
-    A0_ <- my_solve(attr(marginalDesign, "orthogonalizeDesign_inv") %*% tcrossprod(
-      c0$smooth, attr(marginalDesign, "orthogonalizeDesign_inv") ))
-
+    # list of coefficient matrices in off-diagonal 1,2, ...
     A <- list()
-    A1_right <- tcrossprod( c1, attr(marginalDesign, "orthogonalizeDesign_inv") )
-    # A1_left:
-    A[[1]] <- attr(marginalDesign, "orthogonalizeDesign_inv") %*% c1
-    Alpha <- A0_ %*% A1_right
+    Alpha <- 1/ecoefs$values * coefs
+    A[[1]] <- coefs
 
-    maxARtime <- max(sapply(val0, length))
+    maxARtime <- max(sapply(tgrid, length))
     i <- 2
     while(i < maxARtime) {
       A[[i]] <- A[[i-1]] %*% Alpha
       i <- i+1
     }
 
-    A[[1]] <- c1
-
-    complete_cov <- function(v0, v1, Xs) {
+    complete_cov <- function(v0, v1, Xs, tg) {
       dims0 <- sapply(Xs, nrow)
       # make matrix of matrices
       dimslong <- expand.grid(nr = dims0, nc = dims0)
@@ -435,20 +426,22 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
         apply(dimslong, 1, function(x) matrix(nrow = x[1], ncol = x[2]), simplify = FALSE),
         nrow = length(dims0), ncol = length(dims0))
       # fill matrix
-      diag(M) <- v0
+      diag(M) <- v0[names(Xs)]
       for(i in seq_along(v1)) {
-        M[[i,i+1]] <- v1[[i]]; M[[i+1,i]] <- t(v1[[i]]) }
+        this <- c(which(names(Xs) == tg[i]), which(names(Xs) == tg[i+1]))
+        M[[this[1],this[2]]] <- v1[[i]]; M[[this[2],this[1]]] <- t(v1[[i]]) }
       k <- 2 #start at second off-diagonal
       while(k < ncol(M)) {
         for(i in seq_len(ncol(M)-k)) {
-          M[[i, i+k]][] <- Xs[[i]] %*% tcrossprod( A[[k]], Xs[[i+k]] )
-          M[[i+k, i]][] <- t(M[[i, i+k]])
+          this <- c(which(names(Xs) == tg[i]), which(names(Xs) == tg[i+k]))
+          M[[this[1], this[2]]][] <- Xs[[this[1]]] %*% tcrossprod( A[[k]], Xs[[this[2]]] )
+          M[[this[2], this[1]]][] <- t(M[[this[1], this[2]]])
         }
         k <- k+1
       }
       do.call(rbind, lapply(1:nrow(M), function(i) do.call(cbind, M[i, ])))
     }
-    val <- Map(complete_cov, val0, val1, marginalDesign)
+    val <- Map(complete_cov, split(val0, gt), val1, split(XU, gt), tgrid)
 
     val
     }

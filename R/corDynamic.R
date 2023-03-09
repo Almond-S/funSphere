@@ -88,6 +88,11 @@ Initialize.corDynamic <- function(object, data, ...) {
     if(!er) er <- lme_env$.Method != "lme.formula"
   }
   if(er) {
+    lme_env <- parent.frame(5)
+    er <- is.null(lme_env$.Method)
+    if(!er) er <- lme_env$.Method != "lme.formula"
+  }
+  if(er) {
     warning("corDynamic seems not to be executed from within lme.formula().
                  No environment and functionality for dynamic updates available.")
     return(object)

@@ -37,15 +37,16 @@ corFunAR1 <- function(value = 0, form = ~ 1, fixed = FALSE, # first: version wit
   ARform <- ~ t
   environment(ARform) <- environment(form)
   ARform[[2]] <- ARtime
-  attr(value, "ARformula") <- ARform
-  attr(value, "ARtime") <- as.character(ARtime)
-  attr(value, "lme_formula") <- form
 
   # Initialize corSmooth for lag 0 covariances
   value <- corSmooth(value, working_correlation = working_correlation,
              working_control = working_control,
              form = form0, fixed = fixed, verbose = verbose)
+
   class(value) <- c("corFunAR1", class(value))
+  attr(value, "ARformula") <- ARform
+  attr(value, "ARtime") <- as.character(ARtime)
+  attr(value, "lme_formula") <- form
   value
 }
 
@@ -108,9 +109,8 @@ get_X2xX1tY2xY1 <- function(X1, X2, Y1, Y2) {
 #' @import nlme
 #'
 Initialize.corFunAR1 <- function(object, data, ...) {
-
   ## first initialize covariance smoothing for lag 0 covariances
-  object <- NextMethod()
+  object <- Initialize.corDynamic_init(object, data, ...)
 
   ## change groups and Dim to truly independent groups
   attr(object, "inner_groups") <- attr(object, "groups")
@@ -137,7 +137,7 @@ Initialize.corFunAR1 <- function(object, data, ...) {
   tgrid <- split(tgrid, attr(object, "groups"))
   tgrid <- lapply(names(tgrid), function(x) paste(x, min(tgrid[[x]]):max(tgrid[[x]]), sep = "/"))
   attr(object, "ARtimegrid") <- tgrid
-
+browser()
   e <- environment(attr(object, "solvePLS"))
   # re-organize list of design matrices into groups
   # X <- split(e$X, grouptable)

@@ -52,6 +52,13 @@ corDynamic <- function(value = 0, form = ~1, fixed = FALSE,
 #' @import nlme
 #' @export
 Initialize.corDynamic_init <- function(object, data, ...) {
+
+  #   attr(attr(object, "dynamic"), "gamm_formula")
+  # if(!is.null(attr(attr(object, "dynamic"), "original_formula"))) {
+  #   attr(attr(object, "dynamic"), "formula") <-
+  #     attr(attr(object, "dynamic"), "original_formula")
+  # }
+
   class(object) <- class(object)[-1]
   object <- Initialize(object, data, ...)
   class(object) <- c("corDynamic_init", class(object))
@@ -61,6 +68,9 @@ Initialize.corDynamic_init <- function(object, data, ...) {
 
   # Initialize also dynamic component
   attr(object, "dynamic") <- Initialize(attr(object, "dynamic"), data, ...)
+
+  # attr(attr(object, "dynamic"), "formula") <-
+  #   attr(attr(object, "dynamic"), "gamm_formula")
 
   object
 }
@@ -72,7 +82,7 @@ Initialize.corDynamic <- function(object, data, ...) {
   # class(object) <- class(object)[-which_corDyn]
   # object <- Initialize(object, data, ...)
   # class(object) <- append(class(object), "corDynamic", which_corDyn-1)
-  object <- NextMethod()
+  object <- NextMethod() #nlme:::Initialize.corStruct(object, data, ...) #
 
   # get first residuals (or other required data)
   if(length(formula(object)) == 3)
@@ -125,7 +135,6 @@ Initialize.corDynamic <- function(object, data, ...) {
 
 
 #' @import nlme
-# #' @rdname nlme::needUpdate
 #' @export
 needUpdate.corDynamic_init <- function(object) {
   f <- parent.frame(3)
@@ -163,9 +172,8 @@ update.corDynamic_init <- function(object, data) {
   new_object
 }
 
-
+#' @exportS3Method
 #' @export
-#' @import nlme
 update.corDynamic <- function(object, data) {
   # store residuals already (as they will be useful for basically any corDynamic)
   attr(object, "residuals") <- attr(object, "get_residuals")()

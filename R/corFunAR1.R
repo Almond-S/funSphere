@@ -20,33 +20,44 @@ corFunAR1 <- function(value = 0, form = ~ 1, fixed = FALSE, # first: version wit
                       working_correlation = corCAR1,
                       working_control = list(), verbose = FALSE) {
 
-  ## handle formula: store original and create formula without time
-  form0 <- form
-  # and remove the AR time
-  l1 <- length(form)
-  l2 <- length(form[[l1]])
-  l3 <- length(form[[l1]][[l2]])
-  stopifnot(form[[l1]][[1]] == as.name("|"))
-  if(l3 == 1) {
-    ARtime <- form[[l1]][[l2]]
-    form[[l1]] <- form[[l1]][[2]]
-  } else {
-    ARtime <- form[[l1]][[l2]][[l3]]
-    form[[l1]][[l2]] <- form[[l1]][[l2]][[2]]
-  }
-  ARform <- ~ t
-  environment(ARform) <- environment(form)
-  ARform[[2]] <- ARtime
+  # ## handle formula: store original and create formula without time
+  # form0 <- form
+  # # and remove the AR time
+  # l1 <- length(form)
+  # l2 <- length(form[[l1]])
+  # l3 <- length(form[[l1]][[l2]])
+  # stopifnot(form[[l1]][[1]] == as.name("|"))
+  # if(l3 == 1) {
+  #   ARtime <- form[[l1]][[l2]]
+  #   form[[l1]] <- form[[l1]][[2]]
+  # } else {
+  #   ARtime <- form[[l1]][[l2]][[l3]]
+  #   form[[l1]][[l2]] <- form[[l1]][[l2]][[2]]
+  # }
+  # ARform <- ~ t
+  # environment(ARform) <- environment(form)
+  # ARform[[2]] <- ARtime
+  #
+  # attr(value, "ARformula") <- ARform
+  # attr(value, "ARtime") <- as.character(ARtime)
 
   # Initialize corSmooth for lag 0 covariances
   value <- corSmooth(value, working_correlation = working_correlation,
              working_control = working_control,
-             form = form0, fixed = fixed, verbose = verbose)
+             form = form, fixed = fixed, verbose = verbose)
 
-  class(value) <- c("corFunAR1", class(value))
-  attr(value, "ARformula") <- ARform
-  attr(value, "ARtime") <- as.character(ARtime)
-  attr(value, "lme_formula") <- form
+  # attr(value, "formula") <- form
+
+  if(is.null(attr(value, "dynamic"))) {
+    # attr(value, "original_formula") <- form0
+    class(value) <- c("corFunAR1", class(value))
+    # attr(attr(value, "dynamic"), "lme_formula") <- form
+  } else {
+    class(attr(value, "dynamic")) <- c("corFunAR1", class(attr(value, "dynamic")))
+    # attr(attr(value, "dynamic"), "original_formula") <- form0
+    # attr(attr(value, "dynamic"), "lme_formula") <- form
+  }
+
   value
 }
 
@@ -110,7 +121,10 @@ get_X2xX1tY2xY1 <- function(X1, X2, Y1, Y2) {
 #'
 Initialize.corFunAR1 <- function(object, data, ...) {
   ## first initialize covariance smoothing for lag 0 covariances
-  object <- Initialize.corDynamic_init(object, data, ...)
+  # form <- formula(object)
+  # attr(object, "formula") <- attr(object, "original_formula")
+  object <- NextMethod() # Initialize.corSmooth(object, data, ...) #
+  # attr(object, "formula") <- attr(object, "formula")
 
   ## change groups and Dim to truly independent groups
   attr(object, "inner_groups") <- attr(object, "groups")
@@ -120,8 +134,30 @@ Initialize.corFunAR1 <- function(object, data, ...) {
     getGroups(data, formula(object), level = ngroups - 1) else
       factor(rep(1, attr(object, "lag0Dim")$N))
   attr(object, "groups") <- grps <- ordered(grps,
-                                    levels = unique(grps))
+                                            levels = unique(grps))
   attr(object, "Dim") <- Dim(object, grps)
+
+  ## handle formula: store original and create formula without time
+  attr(object, "inner_formula") <- form <- attr(object, "formula")
+  # and remove the AR time
+  l1 <- length(form)
+  l2 <- length(form[[l1]])
+  l3 <- length(form[[l1]][[l2]])
+  stopifnot(form[[l1]][[1]] == as.name("|"))
+  if(l3 == 1) {
+    ARtime <- form[[l1]][[l2]]
+    form[[l1]] <- form[[l1]][[2]]
+  } else {
+    ARtime <- form[[l1]][[l2]][[l3]]
+    form[[l1]][[l2]] <- form[[l1]][[l2]][[2]]
+  }
+  ARform <- ~ t
+  environment(ARform) <- environment(form)
+  ARform[[2]] <- ARtime
+
+  attr(object, "ARformula") <- ARform
+  attr(object, "ARtime") <- as.character(ARtime)
+  attr(object, "formula") <- form
 
   # store information which inner_group belongs to which group
   grouptable <- split(grps, attr(object, "inner_groups"))
@@ -137,7 +173,7 @@ Initialize.corFunAR1 <- function(object, data, ...) {
   tgrid <- split(tgrid, attr(object, "groups"))
   tgrid <- lapply(names(tgrid), function(x) paste(x, min(tgrid[[x]]):max(tgrid[[x]]), sep = "/"))
   attr(object, "ARtimegrid") <- tgrid
-browser()
+
   e <- environment(attr(object, "solvePLS"))
   # re-organize list of design matrices into groups
   # X <- split(e$X, grouptable)
@@ -239,6 +275,8 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     Residuals <- attr(object, "residuals") # assigned by update.corDynamic_init / update.corSmooth
     if(is.null(Residuals))
       Residuals <- c(attr(object, "get_residuals")())
+    if(!is.list(Residuals))
+      Residuals <- split(Residuals, attr(object, "inner_groups"))
 
     grps <- getGroups(object)
     dm <- Dim(object)
@@ -248,6 +286,7 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     # set groups & Dim to inner lag 0 structure
     attr(object, "groups") <- attr(object, "inner_groups")
     attr(object, "Dim") <- attr(object, "inner_Dim")
+    attr(object, "formula") <- attr(object, "inner_formula")
 
     val0 <- corMatrix.corSmooth(object)
     ecoefs <- attr(val0, "coefficients")
@@ -389,7 +428,8 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     e <- lapply(precision, eigen, symmetric = TRUE)
     for(g in seq_along(e)) {
       e[[g]]$values <- pmin(e[[g]]$values, 1/sigma2)
-      e[[g]]$values <- pmax(e[[g]]$values, 0) # get better lower bound
+      e[[g]]$values <- pmax(e[[g]]$values,  # TODO: get better lower bound
+                            min(e[[g]]$values[e[[g]]$values>0]))
     }
     fac <- lapply(e, function(x) sqrt(x$values) * t(x$vectors))
     # log determinant of factor
@@ -404,6 +444,7 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     return(fac)
   } else { # now if(corr)
 
+    browser()
     # otherwise complete covariance matrix ------------------------------------
 
     # list of coefficient matrices in off-diagonal 1,2, ...

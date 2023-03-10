@@ -156,8 +156,9 @@ corMatrix.corSmooth <- function(object, covariate = getCovariate(object), corr =
       }
     }
 
-      if(corr)
+      if(corr) {
         return(val)
+      }
 
     } else {
       if(!is.null(attr(object, "fac")))
@@ -255,7 +256,7 @@ get_demmlerreinsch_solver <- function(XtX, S, X_trafo = NULL) {
 #' @import nlme sparseFLMM
 #' @export
 Initialize.corSmooth <- function(object, data, ...) {
-  object <- NextMethod()
+  object <- NextMethod() #Initialize.corDynamic(object, data, ...) #
 
   # construct smoother
   frm <- attr(object, "gam_formula")

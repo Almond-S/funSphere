@@ -12,6 +12,7 @@ dat$Year <- as.integer(dat$Year)
 
 dat <- dat[order(dat$Time), ]
 
+cs <- corFunAR1(form = ~ s(Time) | Variety / Year)
 cs <- corFunAR1(form = weight ~ s(Time) | Variety / Year)
 attr(cs, "lme_formula")
 
@@ -25,11 +26,11 @@ car <- Initialize(car, dat)
 
 FunMat <- corMatrix(cs, corr = F)
 Matrix::image(crossprod(FunMat[[1]]))
-persp(crossprod(FunMat[[1]]))
+persp(crossprod(FunMat[[1]]), phi = 50)
 
 # try model fit
 
-dat$Time <- rnorm(nrow(dat), dat$Time, sd = .0001)
+# dat$Time <- rnorm(nrow(dat), dat$Time, sd = .0001)
 
 m0 <- gamm(weight ~ s(Time), data = dat, method = "REML",
            correlation = corSmooth(value = .01,
@@ -39,9 +40,7 @@ m0 <- gamm(weight ~ s(Time), data = dat, method = "REML",
 
 m <- gamm(weight ~ s(Time), data = dat, method = "REML",
           correlation = corFunAR1(value = .01,
-                                  form = ~ Time + Year | Variety,
-                                  working_correlation = corCAR1,
-                                  s_xt = list(bsmargin = "tp"),
-                                  s_m = c(0,2), verbose = T),
-          control = lmeControl(maxIter = 1, returnObject = T))
+                                  form = ~ s(Time, k = 3) | Variety / Year,
+                                  working_correlation = corCAR1, verbose = T),
+          control = lmeControl(maxIter = 20, returnObject = T))
 plot(m$gam)

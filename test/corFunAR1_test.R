@@ -2,6 +2,7 @@
 
 # library(funSphere)
 library(mgcv)
+library(tictoc)
 
 dat <- nlme::Soybean
 set.seed(490)
@@ -31,16 +32,18 @@ persp(crossprod(FunMat[[1]]), phi = 50)
 # try model fit
 
 # dat$Time <- rnorm(nrow(dat), dat$Time, sd = .0001)
-
+tic()
 m0 <- gamm(weight ~ s(Time), data = dat, method = "REML",
            correlation = corSmooth(value = .01,
                                    form = ~ s(Time, k = 3) | Variety / Year,
                                    working_correlation = corCAR1, verbose = T),
-           control = lmeControl(maxIter = 1, returnObject = T))
-
+           control = lmeControl(maxIter = 20, returnObject = T))
+toc()
+tic()
 m <- gamm(weight ~ s(Time), data = dat, method = "REML",
           correlation = corFunAR1(value = .01,
                                   form = ~ s(Time, k = 3) | Variety / Year,
                                   working_correlation = corCAR1, verbose = T),
           control = lmeControl(maxIter = 20, returnObject = T))
+toc()
 plot(m$gam)

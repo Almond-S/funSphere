@@ -444,7 +444,6 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
     return(fac)
   } else { # now if(corr)
 
-    browser()
     # otherwise complete covariance matrix ------------------------------------
 
     # list of coefficient matrices in off-diagonal 1,2, ...
@@ -483,6 +482,13 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
       do.call(rbind, lapply(1:nrow(M), function(i) do.call(cbind, M[i, ])))
     }
     val <- Map(complete_cov, split(val0, gt), val1, split(XU, gt), tgrid)
+
+    # TODO: this fix should be removed after coming up with a more sophisticated solution
+    ev <- lapply(val, eigen)
+    for(g in seq_along(val)) {
+      ev[[g]]$values <- pmax(ev[[g]]$values, min(ev[[g]]$values[ev[[g]]$values>0]))
+      val[[g]] <- tcrossprod(sweep(ev[[g]]$vectors, 2, ev[[g]]$values, `*`), ev[[g]]$vectors)
+    }
 
     val
     }

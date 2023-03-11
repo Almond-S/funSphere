@@ -158,6 +158,7 @@ needUpdate.corDynamic <- function(object) {
 }
 
 #' @import nlme
+#' @exportS3Method
 #' @export
 update.corDynamic_init <- function(object, data) {
   new_object <- attr(object, "dynamic")
@@ -172,6 +173,7 @@ update.corDynamic_init <- function(object, data) {
   new_object
 }
 
+#' @import nlme
 #' @exportS3Method
 #' @export
 update.corDynamic <- function(object, data) {

@@ -4,17 +4,17 @@
 #' @param type the ocean (default) or land version of the projection
 #'
 #' @return list containing different utlities
-#' @import stars, sf
+#' @import stars sf
 #' @export
 goode <- function(type = c("ocean", "land"), longrat = 30, latgrat = longrat/2) {
   type <- match.arg(type)
-  
+
   # relevant coordinate reference systems (CRS)
   crs_default <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-  crs_goode <- switch(type, 
+  crs_goode <- switch(type,
                       land = "+proj=igh +towgs84=0,0,0",
                       ocean = "+proj=igh_o +lon_0=-160")
-  
+
   # Prepare polygon of Goode projection cuts
   pm <- .01*c(1,-1)
   goode_cuts <- switch(type,
@@ -68,65 +68,71 @@ goode <- function(type = c("ocean", "land"), longrat = 30, latgrat = longrat/2) 
         list(goode_cuts)),
       crs = crs_default
       ), crs = crs_goode)
-  
+
   ## create graticule
   if(length(longrat) == 1)
     longrat <- seq(-180, 180, by = longrat)
   if(length(latgrat) == 1)
     latgrat <- seq(-90, 90, by = latgrat)
-  
+
   grat <- st_intersection(
     st_transform(
       st_graticule(lon = longrat, lat = latgrat),
-      crs = crs_goode), 
+      crs = crs_goode),
     bg)
-  
+
   # goodize polygon
   goodize_polygon <- function(x) {
-    if(type == "ocean") 
+    if(type == "ocean")
       x <- st_break_antimeridian(x, lon_0 = -160)
     x <- st_transform(x, crs = crs_goode)
     x <- st_make_valid(x)
     # restrict polygons to background polygon
     x <- st_intersection(x, bg)
   }
-  
+
   # goodize raster
   goodize_raster <- function(x) st_crop(
     st_warp(
       st_transform(
-        x, 
-        crs = crs_goode), 
-      crs = crs_goode), 
+        x,
+        crs = crs_goode),
+      crs = crs_goode),
     bg)
-  
-  # goodize point data
-  goodize_points <- function(x, longitude = "LONGITUDE", latitude = "LATITUDE") {
-    x <- st_sf(
+
+  # goodize coordinates
+  goodize_coordinates <- function(x, longitude = "LONGITUDE", latitude = "LATITUDE") {
+    coos <- as.matrix(x[, c(longitude, latitude)])
+    coos <- st_sf(
       st_sfc(
-        st_multipoint(as.matrix(x[, c(longitude, latitude)]))
+        st_multipoint(coos)
         )
       )
-    st_crs(x) <- crs_default
+    st_crs(coos) <- crs_default
     # warp raster to new CRS
-    st_transform(x, crs = crs_goode)
+    coos <- st_transform(coos, crs = crs_goode)
+
+    coos <- as.data.frame(unclass(coos[[1]][[1]]))
+    names(coos) <- c("LONGITUDE", "LATITUDE")
+    x[c(longitude, latitude)] <- coos
+    x
   }
-  
-  list(background = bg, graticule = grat, 
-       goodize_polygon = goodize_polygon, 
+
+  list(background = bg, graticule = grat,
+       goodize_polygon = goodize_polygon,
        goodize_raster = goodize_raster,
-       goodize_points = goodize_points)
+       goodize_coordinates = goodize_coordinates)
 }
 
 
 #' Plot dataset with prediction in Goode holomosine projections
 #'
-#' @param x data.frame containing the `variable` to plot and 
+#' @param x data.frame containing the `variable` to plot and
 #' respective `longitude`s and `latitude`s as columns.
 #' @param variable character, name of variable to illustrate.
 #' @param dims character vector, names of longitude and latitude columns.
-#' @param method plot method. Defaults to 'Goode_ocean', plotting the data 
-#' with R package `tmap` in the ocean-focussed version of the  
+#' @param method plot method. Defaults to 'Goode_ocean', plotting the data
+#' with R package `tmap` in the ocean-focussed version of the
 #' the intersected holomosine projection of Goode (1925).
 #'
 #' @return
@@ -137,32 +143,32 @@ globeplotter_goode <- function(pred = NULL, pred_variables = "TEMP",
                         dat = NULL, dat_variables = NULL,
                         dims = c("LONGITUDE", "LATITUDE"),
                         return_fun = FALSE,
-                        method = c("Goode_ocean", "Goode_land"), 
-                        pred_raster_args = list(palette = "-YlGnBu", n = 9, legend.reverse = TRUE, 
+                        method = c("Goode_ocean", "Goode_land"),
+                        pred_raster_args = list(palette = "-YlGnBu", n = 9, legend.reverse = TRUE,
                                              title = "Water temperature"),
                         dat_dots_args = list(col = "darkred"),
                         bgpolygon_borders_args = list(col = "darkgrey"),
-                        land_raster_args = list("elevation", palette = "-Greys", n = 9, 
+                        land_raster_args = list("elevation", palette = "-Greys", n = 9,
                                                 legend.show = FALSE),
                         world_lines_args = list(),
                         graticule_lines_args = list(col = "darkgrey")) {
   goode <- c("Goode_ocean", "Goode_land")
   method <- match.arg(method)
-  
+
   # collection of simple features which define the land boundaries
   world <- st_as_sf(maps::map("world", plot = FALSE), fill = FALSE)
   data("land", package = "tmap")
-  
+
   if(method %in% goode) {
     # Based on https://github.com/r-tmap/tmap-book/blob/master/code/crs_examples.R
     require(tmap)
-    
+
     # relevant coordinate reference systems (CRS)
     crs_default <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
-    crs_goode <- switch(method, 
+    crs_goode <- switch(method,
                         Goode_land = "+proj=igh +towgs84=0,0,0",
                         Goode_ocean = "+proj=igh_o +lon_0=-160")
-    
+
     # Prepare polygon of Goode projection cuts
     pm <- .01*c(1,-1)
     goode_cuts <- switch(method,
@@ -214,36 +220,36 @@ globeplotter_goode <- function(pred = NULL, pred_variables = "TEMP",
       st_sfc(
         crs = crs_default
       ) %>%
-      st_transform(crs = crs_goode) 
-    
+      st_transform(crs = crs_goode)
+
     # apply Goode projection
-    if(method == "Goode_ocean") 
+    if(method == "Goode_ocean")
       world_goode <- world %>% st_break_antimeridian(lon_0 = -160)
     world_goode <- st_transform(world_goode, crs = crs_goode)
     world_goode <- world_goode %>% st_make_valid()
     # restrict polygons to background polygon
     world_goode <- st_intersection(world_goode, bg)
-    
+
     ## create graticule
     grat <- sf::st_graticule(lon = seq(-180, 150, by = 30), lat = seq(-90, 90, by = 30)) %>%
       st_transform(crs = crs_goode) %>%
       st_intersection(bg)
-    
+
     ## create and transform spatial data of dat
     if(!is.null(dat)) {
       dat_st <- st_multipoint(as.matrix(dat[, dims])) %>% st_sfc() %>% st_sf()
       st_crs(dat_st) <- crs_default
       # warp raster to new CRS
       dat_st <- dat_st %>% st_transform(crs = crs_goode)
-      
+
       if(!is.null(dat_variables))
         dat_st[, dat_variables] <- dat[, dat_variables]
     }
-    
+
     ## warp and crop also land accordingly
-    land_st <- land["elevation"] %>% st_transform(crs = crs_goode) %>% 
+    land_st <- land["elevation"] %>% st_transform(crs = crs_goode) %>%
       st_warp(crs = crs_goode) %>% st_crop(bg)
-    
+
     ## create plot
     .pl_defaults <- list(
       pred = pred,
@@ -255,8 +261,8 @@ globeplotter_goode <- function(pred = NULL, pred_variables = "TEMP",
       world_lines_args = world_lines_args,
       graticule_lines_args = graticule_lines_args
     )
-    
-    pl <- function(pred = .pl_defaults$pred, 
+
+    pl <- function(pred = .pl_defaults$pred,
                    pred_variables = .pl_defaults$pred_variables,
                    pred_raster_args = .pl_defaults$pred_raster_args,
                    dat_dots_args = .pl_defaults$dat_dots_args,
@@ -264,45 +270,45 @@ globeplotter_goode <- function(pred = NULL, pred_variables = "TEMP",
                    land_raster_args = .pl_defaults$land_raster_args,
                    world_lines_args = .pl_defaults$world_lines_args,
                    graticule_lines_args = .pl_defaults$graticule_lines_args) {
-      
+
       ## create and transform spatial data of pred
       if(!is.null(pred)) {
-        pred_st <- st_as_stars(pred, dims = c("LONGITUDE", "LATITUDE"), 
-                               coords = crs_default) 
+        pred_st <- st_as_stars(pred, dims = c("LONGITUDE", "LATITUDE"),
+                               coords = crs_default)
         st_crs(pred_st) <- crs_default
         # warp raster to new CRS
-        pred_st <- pred_st %>% st_transform(crs = crs_goode) %>% 
+        pred_st <- pred_st %>% st_transform(crs = crs_goode) %>%
           st_warp(crs = crs_goode)
         # crop to background
         pred_st <- st_crop(pred_st, bg)
       }
-      
+
       p <- tm_shape(bg) + do.call(tm_borders, bgpolygon_borders_args)
-      
+
       if(!is.null(pred) & !is.null(pred_raster_args))
         p <- p + tm_shape(pred_st) +
         do.call(tm_raster, c(list(pred_variables), pred_raster_args))
-      
+
       if(!is.null(dat) & !is.null(dat_dots_args))
         p <- p + tm_shape(dat_st) +
         do.call(tm_dots, c(as.list(dat_variables), dat_dots_args))
-      
+
       if(!is.null(land_raster_args))
-        p <- p + tm_shape(land_st) + 
+        p <- p + tm_shape(land_st) +
         do.call(tm_raster, land_raster_args)
-      
+
       if(!is.null(world_lines_args))
         p <- p + tm_shape(world_goode) +
-        do.call(tm_lines, world_lines_args) 
-      
+        do.call(tm_lines, world_lines_args)
+
       if(!is.null(graticule_lines_args))
         p <- p + tm_shape(grat) +
-        do.call(tm_lines, graticule_lines_args) 
-      
+        do.call(tm_lines, graticule_lines_args)
+
       p + tm_layout(frame = FALSE, legend.outside = TRUE)
     }
   }
-  
+
   if(return_fun)
     pl else
       pl(pred = pred, pred_variables = pred_variables)
@@ -314,19 +320,19 @@ globeplotter_goode <- function(pred = NULL, pred_variables = "TEMP",
 
 #' Plot data.frame with predictions in interactive 3D chart
 #'
-#' @param pred 
-#' @param pred_variables 
-#' @param dat 
-#' @param dat_variables 
-#' @param dims 
-#' @param return_fun 
-#' @param method 
-#' @param pred_args 
-#' @param dat_args 
-#' @param land_args 
-#' @param world_args 
-#' @param graticule_args 
-#' @param ... 
+#' @param pred
+#' @param pred_variables
+#' @param dat
+#' @param dat_variables
+#' @param dims
+#' @param return_fun
+#' @param method
+#' @param pred_args
+#' @param dat_args
+#' @param land_args
+#' @param world_args
+#' @param graticule_args
+#' @param ...
 #'
 #' @return
 #' @export
@@ -335,34 +341,34 @@ globeplotter_goode <- function(pred = NULL, pred_variables = "TEMP",
 globeplotter_3D <- function(pred = NULL, pred_variables = "TEMP",
                        dat = NULL, dat_variables = NULL,
                        dims = c("LONGITUDE", "LATITUDE"),
-                       return_fun = FALSE, 
-                       pred_args = list(palette = "-YlGnBu", n = 9, legend.reverse = TRUE, 
+                       return_fun = FALSE,
+                       pred_args = list(palette = "-YlGnBu", n = 9, legend.reverse = TRUE,
                                                title = "Water temperature"),
                        dat_args = list(col = "darkred"),
-                       land_args = list("elevation", palette = "-Greys", n = 9, 
+                       land_args = list("elevation", palette = "-Greys", n = 9,
                                                legend.show = FALSE),
                        world_args = list(),
                        graticule_args = list(col = "darkgrey"), ...) {
-  
+
   # collection of simple features which define the land boundaries
   world <- st_as_sf(maps::map("world", plot = FALSE), fill = FALSE)
   data("land")
-  
+
   # Plotly utilities --------------------------------------------------
-  
+
   # hide all the axes
   empty_axis <- list(
-    showgrid = FALSE, 
+    showgrid = FALSE,
     zeroline = FALSE,
     showticklabels = FALSE,
     title = ""
   )
-  
+
   # helper function for converting polar -> cartesian
-  degrees2radians <- function(degree) degree * pi / 180 
-  
+  degrees2radians <- function(degree) degree * pi / 180
+
   lon_shift <- 0*pi
-  
+
   # set custom color scale
   colorscale <- data.frame(
     breaks = seq(0, 1, length.out = 9)
@@ -374,7 +380,7 @@ globeplotter_3D <- function(pred = NULL, pred_variables = "TEMP",
   ) %>% mutate(
     colors = rev(scales::colour_ramp(brewer.pal(9, "Greys"))(breaks))
   )
-  
+
   # prepare land data
   land_pl <- expand.grid(
     lon = st_get_dimension_values(land, which = "x"),
@@ -391,9 +397,9 @@ globeplotter_3D <- function(pred = NULL, pred_variables = "TEMP",
     z = ifelse(is.na(elevation), NA, z)
   )
   land_pl <- as.list(land_pl) %>% lapply(matrix, nrow = nrow(land$elevation))
-  
+
   earthradius <- 6378137
-  
+
   # combine surrounding into function
   add_maplayout <- function(p, zoom = .9, rot = pi/3) add_surface(p,
                                                                   data = land_pl,
@@ -415,26 +421,26 @@ globeplotter_3D <- function(pred = NULL, pred_variables = "TEMP",
     title = TeX("\\theta"),
     #title = TeX("$\\hat{\\mu}(u) = \\sum_{i=1}^n\\sum_{j=1}^{r_i} \\alpha_{i,j} \\psi(\\langle u, u_{i,j} \\rangle)$"),#"Model prediction for the mean",
     scene = list(
-      xaxis = empty_axis, 
-      yaxis = empty_axis, 
+      xaxis = empty_axis,
+      yaxis = empty_axis,
       zaxis = empty_axis,
       aspectratio = list(x = 1, y = 1, z = 1),
       camera = list(eye = list(x = 2*zoom*cos(rot), y = 1.15*zoom*sin(rot), z = 0.2*zoom))
     )
   )
-  
+
   # Prepare data ------------------------------------------------------------
-  
+
   if(!is.null(dat)) {
     dat_ <- list()
     dat_$x <- cos(degrees2radians(dat[[dims[1]]]) + lon_shift) * cos(degrees2radians(dat[[dims[2]]]))
     dat_$y <- sin(degrees2radians(dat[[dims[1]]]) + lon_shift) * cos(degrees2radians(dat[[dims[2]]]))
     dat_$z <- sin(degrees2radians(dat[[dims[2]]]))
     stopifnot(length(dat_variables) <= 1)
-    if(length(dat_variables) == 1) 
+    if(length(dat_variables) == 1)
       dat_$Reponse <- dat[[dat_variables]]
   }
-  
+
   # create plot function ----------------------------------------------------
 
   .pl_defaults <- list(
@@ -446,19 +452,19 @@ globeplotter_3D <- function(pred = NULL, pred_variables = "TEMP",
     world_args = world_args,
     graticule_args = graticule_args
   )
-  
-  pl <- function(pred = .pl_defaults$pred, 
+
+  pl <- function(pred = .pl_defaults$pred,
                  pred_variables = .pl_defaults$pred_variables,
                  pred_args = .pl_defaults$pred_args,
                  dat_args = .pl_defaults$dat_args,
                  land_args = .pl_defaults$land_args,
                  world_args = .pl_defaults$world_args,
                  graticule_args = .pl_defaults$graticule_args) {
-    
-    
+
+
     # create plot
     p <- plot_ly()
-    
+
     # prepare prediction data
     if(!is.null(pred) & !is.null(pred_args)) {
       pred_ <- list()
@@ -469,7 +475,7 @@ globeplotter_3D <- function(pred = NULL, pred_variables = "TEMP",
       pred_$Prediction <- pred[[pred_variables]]
       pred_ <- pred_ %>% lapply(matrix, nrow = length(unique(pred[[dims[1]]])))
       rm(pred)
-      
+
       p <- p %>% add_surface(
         data = pred_,
         x = ~x, y = ~y, z = ~z,
@@ -482,11 +488,11 @@ globeplotter_3D <- function(pred = NULL, pred_variables = "TEMP",
         connectgaps = FALSE
       )
     }
-    
+
     if(!is.null(dat) & !is.null(dat_args)) {
       p <- p %>% add_trace(
         data = dat_,
-        x = ~x, y = ~y, z = ~z, 
+        x = ~x, y = ~y, z = ~z,
         color = I("darkred"),
         text = if(!is.null(dat_[["Response"]])) ~round(Response, 2),
         name = "Argo floats",
@@ -494,11 +500,11 @@ globeplotter_3D <- function(pred = NULL, pred_variables = "TEMP",
         showlegend = TRUE,
         marker = list(size = 2)
       )
-    } 
+    }
       p %>%
       add_maplayout(zoom = 1)
   }
-  
+
   if(return_fun)
     return(pl) else
       pl()

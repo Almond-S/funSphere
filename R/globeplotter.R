@@ -121,7 +121,8 @@ goode <- function(type = c("ocean", "land"), longrat = 30, latgrat = longrat/2) 
   list(background = bg, graticule = grat,
        goodize_polygon = goodize_polygon,
        goodize_raster = goodize_raster,
-       goodize_coordinates = goodize_coordinates)
+       goodize_coordinates = goodize_coordinates,
+       crs_goode = crs_goode, crs_default = crs_default)
 }
 
 

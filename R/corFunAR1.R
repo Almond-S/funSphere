@@ -389,13 +389,16 @@ corMatrix.corFunAR1 <- function(object, covariate = getCovariate(object),
       l[is.na(l)] <- 0
       l
       })
-
+ty <- try(
     prec0 <- structure(
       lapply(seq_along(tgrid), function(tg) {
       structure(
         lapply(seq_along(tgrid[[tg]]), function(i) my_solve(.(val0, tg, i))),
         names = tgrid[[tg]])
     }), names = names(tgrid))
+)
+if(inherits(ty, "try-error"))
+  browser()
 
     .. <- function(x, group, times) x[tgrid[[group]][times]]
 

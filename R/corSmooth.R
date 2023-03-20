@@ -192,65 +192,6 @@ corFactor.corSmooth <- function(object, ...) {
   corMatrix(object, ..., corr = FALSE)
 }
 
-#' @param X marginal design matrix of \code{kronecker(X, X)}.
-#' @param W matrix containing diagonal of diagonal weight matrix of the kronecker design.
-#' Default: zero weights on diagonal and elsewhere one.
-#'
-#' @export
-get_XxXtXxX <- function(X, W = 1- diag(nrow = nrow(X)), RX = row_tensor_square(X)) {
-  # matrix obtained via array model has to be reorganized:
-  XxXtXxX_ <- array(crossprod(RX, W %*% RX), dim = rep(ncol(X), 4))
-  matrix(aperm(XxXtXxX_, c(1,3,2,4)), ncol = ncol(RX))
-}
-
-#' @param X marginal designmatrix in \code{kronecker{X,X}}.
-#' @param Y marginal response in \code{kronecker{Y,Y}} minus diagonal.
-#'
-#' @export
-#' @import nlme sparseFLMM
-get_XxXtYxY_noDiag <- function(X, Y, RX = row_tensor_square(X)) {
-  XtY <- crossprod(X, Y)
-  kronecker(XtY, XtY) - crossprod(RX, Y^2) # subtract diagonal
-}
-
-#' @param XtX inner product matrix of design matrix columns
-#' @param S penalty matrix
-#' @param XtX_trafo a basis transformation matrix for restricting to a subspace
-#' basis \code{X %*% XtX_trafo}. Note that the argument \code{XtY} of the
-#' returned fitting function will stay untransformed and also the coefficients
-#' of the untransformed basis will be returned by it.
-#'
-#' @export
-get_demmlerreinsch_solver <- function(XtX, S, X_trafo = NULL) {
-  # first decomposition of design product
-  eX <- if(is.null(X_trafo)) eigen(XtX) else
-    eigen(crossprod(X_trafo, XtX) %*% X_trafo)
-  # left cholesky-type factor
-  L <- sweep(eX$vectors, 2, 1/sqrt(eX$values), `*`)
-  # adjust penalty
-  K <- if(is.null(X_trafo)) crossprod( L, S ) %*% L else
-    crossprod( L, crossprod(X_trafo, S) %*% X_trafo ) %*% L
-
-  # then decomposition of adjusted penalty
-  eK <- eigen(K)
-  # update side factor
-  L <- L_right <- L %*% eK$vectors
-  # take trafo into prediction matrix
-  if(!is.null(X_trafo)) {
-    L_right <- X_trafo %*% L
-  }
-
-  # return fitting function
-  function(sp, # smoothing parameter
-           XtY) {
-    # solve PLS to get coefficients
-    coefs <- structure(
-      sweep(L, 2, 1 + sp*eK$values, `/`) %*% crossprod(L_right, XtY),
-      ncol = sqrt(ncol(L)), sp = sp) # store smoothing parameter used for fitting
-    if(is.null(X_trafo))
-      coefs else X_trafo %*% coefs
-  }
-}
 
 
 #' @import nlme sparseFLMM

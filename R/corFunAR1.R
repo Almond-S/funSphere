@@ -79,43 +79,6 @@ coef.corFunAR1 <- function (object, unconstrained = TRUE, ...) {
   aux
 }
 
-
-#' @param X1,X2 marginal design matrices of \code{kronecker(X2, X1)}.
-#' @param w a weight vector of length \code{nrow(X1)*nrow(X2)}.
-#' @param RX1,RX2 row tensor products if design matrices
-#' (only available as arguments to allow precomputation).
-#'
-#' @export
-get_X2xX1tX2xX1_weighted <- function(X1, X2 = X1, w = rep(1, nrow(X1)*nrow(X2)),
-                            RX1 = row_tensor_square(X1),
-                            RX2 = row_tensor_square(X2)) {
-  # matrix obtained via array model has to be reorganized:
-  X2xX1tX2xX1_ <- array(crossprod(RX1, matrix(w, ncol = nrow(RX2)) %*% RX2),
-                        dim = rep(c(ncol(X1), ncol(X2)), each = 2))
-  matrix(aperm(X2xX1tX2xX1_, c(1,3,2,4)), ncol = ncol(X1)*ncol(X2))
-}
-
-
-#' @param X1,X2 marginal design matrices of \code{kronecker(X2, X1)}.
-#' (only available as arguments to allow precomputation).
-#'
-#' @export
-get_X2xX1tX2xX1 <- function(X1, X2 = X1) {
-  kronecker(crossprod(X2, X2), crossprod(X1, X1))
-}
-
-
-#' @param X1,X2 marginal design matrices in \code{kronecker{X2,X1}}.
-#' @param Y1,Y2 marginal responses in \code{kronecker{Y2,Y1}}.
-#'
-#' @export
-#' @import nlme sparseFLMM
-get_X2xX1tY2xY1 <- function(X1, X2, Y1, Y2) {
-  X1tY1 <- crossprod(X1, Y1); X2tY2 <- crossprod(X2, Y2)
-  kronecker(X2tY2, X1tY1) # subtract diagonal
-}
-
-
 #' @export
 #' @import nlme
 #'

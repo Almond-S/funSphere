@@ -47,7 +47,7 @@ for(i in tail(names(pdat), -2)) {
 # plot decomposed
 par(mfrow = c(1,3))
 for(i in tail(names(pdat2), -2)) {
-  matplot(pdat2[[i]]$u, main = paste(i, "u", sep = ": "), t = "l")
-  matplot(pdat2[[i]]$v, main = paste(i, "v", sep = ": "), t = "l")
-  barplot(pdat2[[i]]$d, main = "d", col = seq_len(pdat2[[i]]$d))
+  matplot(pdat2[[i]]$u, main = paste(i, "u", sep = ": "), t = "l", lwd = 5*1/seq_along(pdat2[[i]]$d))
+  matplot(pdat2[[i]]$v, main = paste(i, "v", sep = ": "), t = "l", lwd = 5*1/seq_along(pdat2[[i]]$d))
+  barplot(pdat2[[i]]$d, main = "d", col = seq_along(pdat2[[i]]$d))
 }

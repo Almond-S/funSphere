@@ -66,8 +66,8 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
   if(!is.null(quadrature_dat)) {
     X0 <- Predict.matrix(cov_smooth, quadrature_dat)
     G <- wcrossprod(X0, w = quadrature_weights)
-    U <- chol(G)
-    U_ <- solve(U)
+    # U <- chol(G)
+    # U_ <- solve(U)
   }
 
   # initial 2/4: fit lag0 covariance
@@ -98,7 +98,8 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
     if(length(whatelse) > 0)
       ret[whatelse] <- predict_square_smooth(init[whatelse], cov_smooth,
                                              newdata = newdata,
-                                             decompose = decompose)
+                                             decompose = decompose,
+                                             Gramian = if(!is.null(quadrature_dat)) G)
     ret[what]
   }
 

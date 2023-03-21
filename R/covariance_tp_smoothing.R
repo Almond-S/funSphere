@@ -143,30 +143,78 @@ cov_symm_setup <- function(X, S) {
   }
 }
 
-predict_square_smooth <- function(theta, smooth_obj, newdata,
-                                  decompose = FALSE, Gramian = NULL) {
+#' @export
+predict_square_smooths <- function(thetas, smooth_obj, newdata,
+                                   decompose = FALSE, Gramian = NULL) {
+  if(!is.list(thetas))
+    thetas <- list(pred = thetas)
   X <- Predict.matrix(smooth_obj, data = newdata)
-  if(!is.list(theta))
-    theta <- list(pred = theta)
+
+  lapply(thetas, predict_square_smooth, X,
+         decompose = decompose, Gramian = Gramian)
+}
+
+
+#' Predict a single-tensor-product smooth
+#'
+#' @param theta an object representing the estimated coefficients
+#' @param smooth_obj a gam smoother object with a \code{Predict.matrix} method
+#' @param newdata data for prediction
+#' @param decompose logical, should prediction be returned in form of its SVD?
+#' @param Gramian an optional Gramian providing the Gam-matrix of the splines for SVD.
+#' For NULL, the default, the SVD is conducted with respect to an inner product in
+#' which the basis functions are orthonormal.
+#'
+#' @export
+predict_square_smooth <- function(theta, X, decompose = FALSE, Gramian = NULL, ...) {
+  UseMethod("predict_square_smooth")
+}
+
+#' @export
+predict_square_smooth.matrix <- function(theta, X, decompose = FALSE, Gramian = NULL) {
+
   if(!decompose) return(
-    lapply(theta, function(th) if(is.matrix(th))
-      X %*% tcrossprod(th, X) else
-        tcrossprod(sweep(X, 2, th, `*`), X) # assume coef matrix diag(theta)
-    )
+    wtcrossprod(X, w = theta)
   )
   # alternatively make SVD first
   if(!is.null(Gramian)) {
     U <- chol(Gramian)
     U_ <- solve(U)
-    theta <- lapply(theta, wtcrossprod, x = U, y = U)
+    theta <- wtcrossprod(U, w = theta)
     X <- X %*% U_
   }
-  SVD <- lapply(theta, svd)
-  for(i in seq_along(SVD)) {
-    SVD[[i]][c("u", "v")] <- lapply(SVD[[i]][c("u", "v")], function(y) X %*% y)
-  }
+  SVD <- svd(theta)
+  SVD[c("u", "v")] <- lapply(SVD[c("u", "v")], function(y) X %*% y)
+
   SVD
 }
+
+#' @export
+predict_square_smooth.eigen <- function(theta, X, decompose = FALSE, Gramian = NULL) {
+
+  X <- X %*% theta$vectors
+
+  if(!decompose) return(
+    wtcrossprod(X, w = theta$values)
+  )
+  # alternatively make SVD first
+  if(!is.null(Gramian)) {
+    Gramian <- wcrossprod(theta$vectors, w = Gramian)
+    U <- chol(Gramian)
+    U_ <- solve(U)
+    theta$values <- wtcrossprod(U, w = theta$values)
+    X <- X %*% U_
+  }
+  SVD <- if(is.matrix(theta$values))
+    svd(theta$values,
+        nu = nrow(theta$values),
+        nv = nrow(theta$values)) else list(d = theta$values,
+                                u = theta$vectors, v = theta$vectors)
+  SVD[c("u", "v")] <- lapply(SVD[c("u", "v")], function(y) tcrossprod(X, y))
+
+  SVD
+}
+
 
 #' Set up smooth covariance fitting for two cross-covariances
 #'

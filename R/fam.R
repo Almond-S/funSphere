@@ -141,6 +141,9 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
     ret[what]
   }
 
+  init$res <- res
+  init$X <- X
+
   # post process and return -------------------------------
   init
 } # fam_fit
@@ -158,15 +161,115 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
 #' @param ...
 #'
 #' @export
-fam_EM <- function(init, gam_prefit, cov_smooth, id, cov_sp = 0,
+fam_EM <- function(init, gam_prefit, id, cov_sp = 0, maxIter = 1,
                    truncate = TRUE, verbose = FALSE,
                    ...) {
-  # compute conditional means and variances
-  mu <- predict(init$mean)
-  # ar <-
+  mean <- init$mean
+  autocor <- init$autocor
+  cov_lag0 <- init$cov_lag0
+  sigma2 <- init$mean$sigma^2
 
-  # obtain updated means and covariance operators
+  y <- split(init$mean$response, id)
 
+  X <- init$X
+  res <- init$res
+  n <- length(X)
+  XX <- lapply(X, crossprod)
+
+  ### compute conditional means and variances
+  # following Shumway and Stoffer (1982) 'An Approach to Time Series Smoothing
+  # and Forecasting using the EM Algorithm'
+
+  # forward recursion to compute means/variances conditional on previous history
+  forward <- function(x_prev, P_prev, M, y) {
+    # mean and covariance conditional on previous history
+    x_ <- autocor %*% x_prev
+    P_ <- wtcrossprod(autocor, w = P_prev) + cov_lag0
+    # data update
+    P_M <- tcrossprod(P_, M)
+    K <- solve(crossprod(P_M, M) + diag(sigma2, nrow = nrow(M)), P_M)
+    list(
+      x = x_ + K %*% (y - M %*% x_),
+      P_ = P_,
+      P = P_ - tcrossprod(K, P_M)
+         )
+  }
+
+  # backward recursion to compute means/variances conditional on all data
+  backward <- function(full_x_prev, full_P_prev, x, P, P_, P2prev_prev, J_prev, P_prev) {
+    ret <- list()
+    ret$J <- solve(P, tcrossprod(P, autocor))
+    ret$x <- x + ret$J %*% (full_x_prev - autocor %*% x)
+    ret$P <- P + ret$J %*% tcrossprod(full_P_prev - P_, ret$J)
+    if(!is.null(P2prev_prev))
+      ret$P2prev <- crossprod(P_prev, J) + J_prev %*% crossprod(P2prev_prev - autocor %*% P_prev, J)
+    ret
+  }
+  # where P2prev is the covariance between the previous (t) and the current time point (t-1) given all data
+  # i.e. P^n_{t,t-1} in the notation of Shumway and Stoffer (shifted by 1 wrt their Eq. A11)
+
+  # start EM algo -----------------------------------------------------------
+
+  is <- 1:n
+  EMiter <- 1
+  while(EMiter <= maxIter) {
+
+    ### compute conditional means and variances
+
+    # run forward recursion
+    fw <- list(list(x = numeric(ncol(autocor)), P = cov_lag0))
+    for(i in 1:n) {
+      fw[[i+1]] <- forward(fw[[i]]$x, fw[[i]]$P, X[[i]], res[[i]])
+    }
+
+    # run backward recursion
+    bw <- list()
+    with( fw[[n+1]], {
+      P_M <- tcrossprod(P_, M[[n]])
+      K <- solve(crossprod(P_M, M[[n]]) + diag(sigma2, nrow = nrow(M[[n]])), P_M)
+    })
+    bw[[n]] <- fw[[n+1]]
+    bw[[n]]$P2prev <- (diag(ncol(autocor)) - K %*% M[[n]]) %*% autocor %*% fw[[n]]$P
+    for(i in (n-1):1) {
+      bw[[i]] <- backward(bw[[i+1]]$x, bw[[i+1]]$P, fw[[i]]$x, fw[[i]]$P,
+                          fw[[i]]$P_, bw[[i+1]]$P2prev, bw[[i+1]]$J, fw[[i+1]]$P)
+    }
+
+    ### compute
+    P <- array(sapply(bw, `[[`, "P"), dim = c(dim(cov_lag0), length(bw)))
+    P2prev <- array(sapply(bw, `[[`, "P2prev"), dim = c(dim(cov_lag0), length(bw)))
+    x <- array(sapply(bw, `[[`, "x"), dim = c(ncol(autocor), length(bw)))
+
+    # response minus AR predictions
+    y_tilde <- Map(function(y, M, i) y - M %*% x[, i], X, is)
+    y_tilde <- unsplit(y_tilde, id)
+
+    # update mean model
+    gam_prefit$response <- y_tilde
+    mean <- gam(G = gam_prefit, ...)
+
+    # update AR components
+    xx <- tcrossprod(x)
+    A <- rowSums(P[,,-length(bw)], dims = 2) + xx - tcrossprod(x[,length(bw)])
+    B <- rowSums(P, dims = 2) + tcrossprod(x[,-1], x[,-length(bw)])
+    C <- rowSums(P[,,-1], dims = 2) + xx - tcrossprod(x[,1])
+
+    autocor <- solve(A, B) # TODO: should probably be regularized!?!?!
+    cov_lag0 <- 1/n*(C - tcrossprod(autocor, B))
+    sigma2 <- mean(mean$residuals^2) + mean(
+      Map(function(i,MM) mean(diag(P[,,i]%*%MM)), is, XX)
+    )
+
+    EMiter <- EMiter + 1
+  }
+
+  init$autocor <- autocor
+  init$cov_lag0 <- cov_lag0
+  init$sigma2 <- sigma2
+  init$mean <- mean
+  init$x_pred <- x
+
+  init
 }
 
 

@@ -13,12 +13,13 @@ cov_smooth <- smooth.construct(s(Time), data = dat, knots = NULL)
 id <- model.frame(~Plot, dat)[[1]]
 
 
-init <- list()
+# manually test computation of covariance components ----------------------
+
 # fit initial gam
-init$mean <- gam(G = gam_prefit)
+meanfit <- gam(G = gam_prefit)
 
 # prepare covariance fit
-res <- split(init$mean$residuals, id)
+res <- split(meanfit$residuals, id)
 idx <- split(seq_along(id), id)
 X <- lapply(idx, function(id) cov_smooth$X[id, , drop = FALSE])
 cov_symm_fit <- cov_symm_setup(X, cov_smooth$S)
@@ -33,12 +34,15 @@ idcombs <- idgrid[idgrid$a %in% names(res) & idgrid$b %in% names(res), ]
 cov_cross_fit <- cov_cross_setup(X[idcombs$a], X[idcombs$b], cov_smooth$S)
 theta1 <- cov_cross_fit(res[idcombs$a], res[idcombs$b], sp = .1)
 
+
+# test initial fitting using fam_fit --------------------------------------
+
 # plot estimates on a grid
 pdat <- list(Time = seq(min(dat$Time), max(dat$Time), len = 40))
-m <- fam_fit(gam_prefit, cov_smooth, id, cov_sp = .1,
+init <- fam_init(gam_prefit, cov_smooth, id, cov_sp = .1,
              quadrature_dat = pdat, truncate = FALSE, verbose = TRUE)
-pdat <- c(pdat, m$predict(newdata = pdat, decompose = FALSE))
-pdat2 <- c(pdat["Time"], m$predict(newdata = pdat, decompose = TRUE))
+pdat <- c(pdat, init$predict(newdata = pdat, decompose = FALSE))
+pdat2 <- c(pdat["Time"], init$predict(newdata = pdat, decompose = TRUE))
 
 plot(pdat$Time, pdat$mean, t = "l")
 for(i in tail(names(pdat), -2)) {
@@ -52,3 +56,9 @@ for(i in tail(names(pdat2), -2)) {
   matplot(pdat2[[i]]$v, main = paste(i, "v", sep = ": "), t = "l", lwd = 10*1/seq_along(pdat2[[i]]$d))
   barplot(pdat2[[i]]$d, main = "d", col = seq_along(pdat2[[i]]$d))
 }
+
+
+# test EM algo ------------------------------------------------------------
+
+m <- fam_EM(init, gam_prefit, id)
+# runs through but is not correct, yet...

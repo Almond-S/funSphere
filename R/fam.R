@@ -37,7 +37,7 @@ wtcrossprod <- function(x, y = NULL, w = NULL) {
   } else return(tcrossprod(x, sweep(y, 2, w, `*`)))
 }
 
-#' Fit functional regression model from within \code{fam}
+#' Fit initial functional regression model from within \code{fam}
 #'
 #' This returns OLS mean estimates underlying also
 #' all estimates of covariance components.
@@ -50,7 +50,7 @@ wtcrossprod <- function(x, y = NULL, w = NULL) {
 #' @import mgcv
 #' @export
 #'
-fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
+fam_init <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
                     quadrature_dat = NULL,
                     quadrature_weights = 1/length(quadrature_dat[[1]]),
                     truncate = TRUE, verbose = FALSE,
@@ -146,7 +146,7 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
 
   # post process and return -------------------------------
   init
-} # fam_fit
+} # fam_init
 
 
 
@@ -164,12 +164,12 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
 fam_EM <- function(init, gam_prefit, id, cov_sp = 0, maxIter = 1,
                    truncate = TRUE, verbose = FALSE,
                    ...) {
-  mean <- init$mean
-  autocor <- init$autocor
-  cov_lag0 <- init$cov_lag0
-  sigma2 <- init$mean$sigma^2
+  mean_model <- init$mean_model
+  autocor <- wtcrossprod(init$autocor$vectors, w = init$autocor$values)
+  cov_lag0 <- wtcrossprod(init$cov_lag0$vectors, w = init$cov_lag0$values)
+  sigma2 <- mean_model$sig2
 
-  y <- split(init$mean$response, id)
+  y <- split(init$mean_model$y, id)
 
   X <- init$X
   res <- init$res
@@ -187,7 +187,7 @@ fam_EM <- function(init, gam_prefit, id, cov_sp = 0, maxIter = 1,
     P_ <- wtcrossprod(autocor, w = P_prev) + cov_lag0
     # data update
     P_M <- tcrossprod(P_, M)
-    K <- solve(crossprod(P_M, M) + diag(sigma2, nrow = nrow(M)), P_M)
+    K <- P_M %*% solve(M %*% P_M + diag(sigma2, nrow = nrow(M)))
     list(
       x = x_ + K %*% (y - M %*% x_),
       P_ = P_,
@@ -198,11 +198,11 @@ fam_EM <- function(init, gam_prefit, id, cov_sp = 0, maxIter = 1,
   # backward recursion to compute means/variances conditional on all data
   backward <- function(full_x_prev, full_P_prev, x, P, P_, P2prev_prev, J_prev, P_prev) {
     ret <- list()
-    ret$J <- solve(P, tcrossprod(P, autocor))
+    # ret$J <- solve(P, tcrossprod(P, autocor))
+    ret$J <- tcrossprod(P, autocor) %*% ginv(P) # TODO: check what to do about this
     ret$x <- x + ret$J %*% (full_x_prev - autocor %*% x)
     ret$P <- P + ret$J %*% tcrossprod(full_P_prev - P_, ret$J)
-    if(!is.null(P2prev_prev))
-      ret$P2prev <- crossprod(P_prev, J) + J_prev %*% crossprod(P2prev_prev - autocor %*% P_prev, J)
+    ret$P2prev <- crossprod(P_prev, ret$J) + J_prev %*% crossprod(P2prev_prev - autocor %*% P_prev, ret$J)
     ret
   }
   # where P2prev is the covariance between the previous (t) and the current time point (t-1) given all data
@@ -224,16 +224,16 @@ fam_EM <- function(init, gam_prefit, id, cov_sp = 0, maxIter = 1,
 
     # run backward recursion
     bw <- list()
-    with( fw[[n+1]], {
-      P_M <- tcrossprod(P_, M[[n]])
-      K <- solve(crossprod(P_M, M[[n]]) + diag(sigma2, nrow = nrow(M[[n]])), P_M)
-    })
+    P_M <- tcrossprod(fw[[n+1]]$P_, X[[n]])
+    K <- P_M %*% solve(X[[n]] %*% P_M + diag(sigma2, nrow = nrow(X[[n]])))
     bw[[n]] <- fw[[n+1]]
-    bw[[n]]$P2prev <- (diag(ncol(autocor)) - K %*% M[[n]]) %*% autocor %*% fw[[n]]$P
+    bw[[n]]$P2prev <- (diag(ncol(autocor)) - K %*% X[[n]]) %*% autocor %*% fw[[n]]$P
+    bw[[n]]$J <- with(bw[[n]],  tcrossprod(P, autocor) %*% ginv(P)) # TODO: check what to do about this
     for(i in (n-1):1) {
-      bw[[i]] <- backward(bw[[i+1]]$x, bw[[i+1]]$P, fw[[i]]$x, fw[[i]]$P,
-                          fw[[i]]$P_, bw[[i+1]]$P2prev, bw[[i+1]]$J, fw[[i+1]]$P)
+      bw[[i]] <- backward(bw[[i+1]]$x, bw[[i+1]]$P, fw[[i+1]]$x, fw[[i+1]]$P,
+                          fw[[i+1]]$P_, bw[[i+1]]$P2prev, bw[[i+1]]$J, fw[[i+1]]$P)
     }
+    # bw <- bw[-1]
 
     ### compute
     P <- array(sapply(bw, `[[`, "P"), dim = c(dim(cov_lag0), length(bw)))
@@ -241,12 +241,12 @@ fam_EM <- function(init, gam_prefit, id, cov_sp = 0, maxIter = 1,
     x <- array(sapply(bw, `[[`, "x"), dim = c(ncol(autocor), length(bw)))
 
     # response minus AR predictions
-    y_tilde <- Map(function(y, M, i) y - M %*% x[, i], X, is)
+    y_tilde <- Map(function(y, M, i) y - M %*% x[, i], y, X, is)
     y_tilde <- unsplit(y_tilde, id)
 
     # update mean model
-    gam_prefit$response <- y_tilde
-    mean <- gam(G = gam_prefit, ...)
+    gam_prefit$y <- y_tilde
+    mean_model <- gam(G = gam_prefit, ...)
 
     # update AR components
     xx <- tcrossprod(x)
@@ -254,10 +254,10 @@ fam_EM <- function(init, gam_prefit, id, cov_sp = 0, maxIter = 1,
     B <- rowSums(P, dims = 2) + tcrossprod(x[,-1], x[,-length(bw)])
     C <- rowSums(P[,,-1], dims = 2) + xx - tcrossprod(x[,1])
 
-    autocor <- solve(A, B) # TODO: should probably be regularized!?!?!
+    autocor <- ginv(A, B) # TODO: should probably be regularized!?!?!
     cov_lag0 <- 1/n*(C - tcrossprod(autocor, B))
-    sigma2 <- mean(mean$residuals^2) + mean(
-      Map(function(i,MM) mean(diag(P[,,i]%*%MM)), is, XX)
+    sigma2 <- mean_model$sig2 + mean(
+      mapply(function(i,MM) mean(diag(P[,,i]%*%MM)), is, XX)
     )
 
     EMiter <- EMiter + 1
@@ -266,7 +266,7 @@ fam_EM <- function(init, gam_prefit, id, cov_sp = 0, maxIter = 1,
   init$autocor <- autocor
   init$cov_lag0 <- cov_lag0
   init$sigma2 <- sigma2
-  init$mean <- mean
+  init$mean_model <- mean_model
   init$x_pred <- x
 
   init

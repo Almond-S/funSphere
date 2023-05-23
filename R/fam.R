@@ -93,6 +93,11 @@ fam_init <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
   # get estimated coefficients
   init$cov_lag0 <- cov_symm_fit(res, cov_sp[1])
   vcat("and done...")
+
+  # # estimate (iid) residual variance
+  # var_lag0 <- (unlist(lapply(X, apply, 1, wcrossprod, w = init$cov_lag0)))
+  # init$sigma2 <- pmax(init$mean_model$sig2)
+
   # if(is.null(quadrature_dat))
   eigen0 <- eigen(init$cov_lag0, symmetric = TRUE)
   # else {
@@ -147,6 +152,9 @@ fam_init <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
     )
   class(init$autocor) <- "eigen"
   vcat("autocorrelation operator estimated...")
+
+  # initial 5/5: estimate increment variance
+
 
   # return predict function
   init$predict <- function(what = c("mean", "cov_lag0", "cov_lag1", "autocor"),

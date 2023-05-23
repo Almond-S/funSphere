@@ -7,7 +7,7 @@ dat <- nlme::Soybean
 gam_prefit <- gam(weight ~ s(Time), data = dat, fit = FALSE)
 
 # set up covariance smooth
-cov_smooth <- smooth.construct(s(Time), data = dat, knots = NULL)
+cov_smooth <- smooth.construct(s(Time, bs = "ts"), data = dat, knots = NULL)
 
 # get grouping structure
 id <- model.frame(~Plot, dat)[[1]]

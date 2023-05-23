@@ -2,7 +2,7 @@
 % Please edit documentation in R/fam.R
 \name{fam_init}
 \alias{fam_init}
-\title{Fit functional regression model from within \code{fam}}
+\title{Fit initial functional regression model from within \code{fam}}
 \usage{
 fam_init(
   gam_prefit,

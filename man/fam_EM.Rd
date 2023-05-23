@@ -7,9 +7,9 @@
 fam_EM(
   init,
   gam_prefit,
-  cov_smooth,
   id,
   cov_sp = 0,
+  maxIter = 1,
   truncate = TRUE,
   verbose = FALSE,
   ...

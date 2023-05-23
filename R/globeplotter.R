@@ -24,9 +24,9 @@ goode <- function(type = c("ocean", "land"), longrat = 30, latgrat = longrat/2) 
                            rep(180, 181), # right side down
                            rep(80+pm, each = 91), # third cut bottom
                            rep(-20+pm, each = 91), # second cut bottom
-                           rep(100+pm, each = 91), # first cut bottom
+                           rep(-100+pm, each = 91), # first cut bottom
                            rep(-180, 181), # left side up
-                           rep(40-pm, each = 91), # cut top
+                           rep(-40-pm, each = 91), # cut top
                            180 # close
                          ),
                          lats = c(

@@ -50,7 +50,7 @@ wtcrossprod <- function(x, y = NULL, w = NULL) {
 #' @import mgcv
 #' @export
 #'
-fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
+fam_init <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
                     quadrature_dat = NULL,
                     quadrature_weights = 1/length(quadrature_dat[[1]]),
                     truncate = TRUE, verbose = FALSE,
@@ -63,6 +63,9 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
 
   # checks:
   stopifnot(all(id == is.integer(id)) | is.ordered(id))
+  if(length(cov_sp) == 1)
+    cov_sp <- rep(cov_sp, 3) else
+      stopifnot(length(cov_sp) == 3)
 
   # initial fits ------------------------------------------
   init <- list()
@@ -79,6 +82,8 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
   if(!is.null(quadrature_dat)) {
     X0 <- Predict.matrix(cov_smooth, quadrature_dat)
     init$Gramian <- wcrossprod(X0, w = quadrature_weights)
+    init$Gramian_chol <- chol(init$Gramian)
+    init$Gramian_chol_inv <- solve(init$Gramian_chol)
     vcat("Gramian computed...")
   }
 
@@ -86,16 +91,24 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
   cov_symm_fit <- cov_symm_setup(X, cov_smooth$S)
   vcat("lag 0 covariance estimation prepared...")
   # get estimated coefficients
-  init$cov_lag0 <- cov_symm_fit(res, cov_sp)
+  init$cov_lag0 <- cov_symm_fit(res, cov_sp[1])
   vcat("and done...")
+  # if(is.null(quadrature_dat))
   eigen0 <- eigen(init$cov_lag0, symmetric = TRUE)
+  # else {
+  #   eigen0 <- eigen(wtcrossprod(init$Gramian_chol, w = init$cov_lag0), symmetric = TRUE)
+  # }
+
   if(truncate) {
     which_pos <- which(eigen0$values > 0)
     eigen0$values <- eigen0$values[which_pos]
     eigen0$vectors <- eigen0$vectors[, which_pos, drop = FALSE]
   }
+
   # store coefficients in eigenbasis + eigenvectors of variance space
   init$cov_lag0 <- eigen0
+  # if(!is.null(quadrature_dat))
+  #   init$cov_lag0$vectors <- init$Gramian_chol_inv %*% eigen0$vectors
 
   # initial 3/4: fit lag1 covariance
   idgrid <- if(is.factor(id)) levels(id) else min(id):max(id)
@@ -104,13 +117,22 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
   idcombs <- idgrid[idgrid$a %in% names(res) & idgrid$b %in% names(res), ]
   cov_cross_fit <- cov_cross_setup(X[idcombs$a], X[idcombs$b], cov_smooth$S)
   vcat("lag 1 covariance estimation prepared...")
-  init$cov_lag1 <- cov_cross_fit(res[idcombs$a], res[idcombs$b], sp = cov_sp)
+  init$cov_lag1 <- cov_cross_fit(res[idcombs$a], res[idcombs$b], sp = cov_sp[2])
   vcat("and done...")
   # project into variance space
-  init$cov_lag1 <- list(
+  # if(is.null(quadrature_dat))
+    init$cov_lag1 <- list(
     values = wcrossprod(eigen0$vectors, w = init$cov_lag1),
     vectors = eigen0$vectors
     )
+    # else {
+    #   init$cov_lag1 <- list(
+    #   # first map to orthonormal basis
+    #   values = wcrossprod(eigen0$vectors,
+    #                       w = wtcrossprod(init$Gramian_chol, init$cov_lag1)),
+    #   vectors = init$cov_lag0$vectors
+    #   )
+    #   }
   class(init$cov_lag1) <- "eigen"
 
   # initial 4/4: estimate autocorrelation operator
@@ -120,8 +142,8 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
   #         init$cov_lag0), init$cov_lag1)
   # ... in variance eigen space
   init$autocor <- list(
-    values = t(eigen0$values / (eigen0$values^2 + cov_sp) * init$cov_lag1$values),
-    vectors = eigen0$vectors
+    values = t(init$cov_lag0$values / (init$cov_lag0$values^2 + cov_sp[3]) * init$cov_lag1$values),
+    vectors = init$cov_lag0$vectors
     )
   class(init$autocor) <- "eigen"
   vcat("autocorrelation operator estimated...")
@@ -137,7 +159,9 @@ fam_fit <- function(gam_prefit, cov_smooth, id, cov_sp = 0,
       ret[whatelse] <- predict_square_smooths(init[whatelse], cov_smooth,
                                              newdata = newdata,
                                              decompose = decompose,
-                                             Gramian = init$Gramian)
+                                             Gramian = init$Gramian,
+                                             Gramian_chol = init$Gramian_chol,
+                                             Gramian_chol_inv = init$Gramian_chol_inv)
     ret[what]
   }
 

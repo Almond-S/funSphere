@@ -4,7 +4,15 @@
 \alias{predict_square_smooth}
 \title{Predict a single-tensor-product smooth}
 \usage{
-predict_square_smooth(theta, X, decompose = FALSE, Gramian = NULL, ...)
+predict_square_smooth(
+  theta,
+  X,
+  decompose = FALSE,
+  Gramian = NULL,
+  Gramian_chol = NULL,
+  Gramian_chol_inv = NULL,
+  ...
+)
 }
 \arguments{
 \item{theta}{an object representing the estimated coefficients}

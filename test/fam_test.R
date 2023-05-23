@@ -35,8 +35,9 @@ theta1 <- cov_cross_fit(res[idcombs$a], res[idcombs$b], sp = .1)
 
 # plot estimates on a grid
 pdat <- list(Time = seq(min(dat$Time), max(dat$Time), len = 40))
-m <- fam_fit(gam_prefit, cov_smooth, id, cov_sp = .1,
-             quadrature_dat = pdat, truncate = FALSE, verbose = TRUE)
+m <- fam_init(gam_prefit, cov_smooth, id, cov_sp = c(.1, 20, 12), #c(1, 20, 12),
+             quadrature_dat = pdat,
+             truncate = T, verbose = TRUE)
 pdat <- c(pdat, m$predict(newdata = pdat, decompose = FALSE))
 pdat2 <- c(pdat["Time"], m$predict(newdata = pdat, decompose = TRUE))
 
@@ -52,3 +53,4 @@ for(i in tail(names(pdat2), -2)) {
   matplot(pdat2[[i]]$v, main = paste(i, "v", sep = ": "), t = "l", lwd = 10*1/seq_along(pdat2[[i]]$d))
   barplot(pdat2[[i]]$d, main = "d", col = seq_along(pdat2[[i]]$d))
 }
+

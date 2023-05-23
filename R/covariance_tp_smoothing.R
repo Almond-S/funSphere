@@ -145,13 +145,18 @@ cov_symm_setup <- function(X, S) {
 
 #' @export
 predict_square_smooths <- function(thetas, smooth_obj, newdata,
-                                   decompose = FALSE, Gramian = NULL) {
+                                   decompose = FALSE,
+                                   Gramian = NULL,
+                                   Gramian_chol = NULL,
+                                   Gramian_chol_inv = NULL) {
   if(!is.list(thetas))
     thetas <- list(pred = thetas)
   X <- Predict.matrix(smooth_obj, data = newdata)
 
   lapply(thetas, predict_square_smooth, X,
-         decompose = decompose, Gramian = Gramian)
+         decompose = decompose, Gramian = Gramian,
+         Gramian_chol = Gramian_chol,
+         Gramian_chol_inv = Gramian_chol_inv)
 }
 
 
@@ -166,20 +171,25 @@ predict_square_smooths <- function(thetas, smooth_obj, newdata,
 #' which the basis functions are orthonormal.
 #'
 #' @export
-predict_square_smooth <- function(theta, X, decompose = FALSE, Gramian = NULL, ...) {
+predict_square_smooth <- function(theta, X, decompose = FALSE, Gramian = NULL,
+                                  Gramian_chol = NULL,
+                                  Gramian_chol_inv = NULL, ...) {
   UseMethod("predict_square_smooth")
 }
 
 #' @export
-predict_square_smooth.matrix <- function(theta, X, decompose = FALSE, Gramian = NULL) {
+predict_square_smooth.matrix <- function(theta, X, decompose = FALSE,
+                                         Gramian = NULL,
+                                         Gramian_chol = NULL,
+                                         Gramian_chol_inv = NULL) {
 
   if(!decompose) return(
     wtcrossprod(X, w = theta)
   )
   # alternatively make SVD first
   if(!is.null(Gramian)) {
-    U <- chol(Gramian)
-    U_ <- solve(U)
+    U <- if(is.null(Gramian_chol)) chol(Gramian) else Gramian_chol
+    U_ <- if(is.null(Gramian_chol_inv)) solve(U) else Gramian_chol_inv
     theta <- wtcrossprod(U, w = theta)
     X <- X %*% U_
   }
@@ -190,29 +200,36 @@ predict_square_smooth.matrix <- function(theta, X, decompose = FALSE, Gramian = 
 }
 
 #' @export
-predict_square_smooth.eigen <- function(theta, X, decompose = FALSE, Gramian = NULL) {
+predict_square_smooth.eigen <- function(theta, X, decompose = FALSE,
+                                        Gramian = NULL,
+                                        Gramian_chol = NULL,
+                                        Gramian_chol_inv = NULL) {
 
-  X <- X %*% theta$vectors
-
-  if(!decompose) return(
-    wtcrossprod(X, w = theta$values)
-  )
-  # alternatively make SVD first
-  if(!is.null(Gramian)) {
-    Gramian <- wcrossprod(theta$vectors, w = Gramian)
-    U <- chol(Gramian)
-    U_ <- solve(U)
-    theta$values <- wtcrossprod(U, w = theta$values)
-    X <- X %*% U_
-  }
-  SVD <- if(is.matrix(theta$values))
-    svd(theta$values,
-        nu = nrow(theta$values),
-        nv = nrow(theta$values)) else list(d = theta$values,
-                                u = theta$vectors, v = theta$vectors)
-  SVD[c("u", "v")] <- lapply(SVD[c("u", "v")], function(y) tcrossprod(X, y))
-
-  SVD
+  if(!decompose) {
+    X <- X %*% theta$vectors
+    return( wtcrossprod(X, w = theta$values) )
+    }
+  # alternatively reduce to matrix case
+  theta <- wtcrossprod(theta$vectors, w = theta$values)
+  predict_square_smooth.matrix(theta, X, decompose = decompose,
+                               Gramian = Gramian,
+                               Gramian_chol = Gramian_chol,
+                               Gramian_chol_inv = Gramian_chol_inv)
+  # if(!is.null(Gramian)) {
+  #   Gramian <- wcrossprod(theta$vectors, w = Gramian)
+  #   U <- chol(Gramian)
+  #   U_ <- solve(U)
+  #   theta$values <- wtcrossprod(U, w = theta$values)
+  #   X <- X %*% U_
+  # }
+  # SVD <- if(is.matrix(theta$values))
+  #   svd(theta$values,
+  #       nu = nrow(theta$values),
+  #       nv = nrow(theta$values)) else list(d = theta$values,
+  #                               u = theta$vectors, v = theta$vectors)
+  # SVD[c("u", "v")] <- lapply(SVD[c("u", "v")], function(y) tcrossprod(X, y))
+  #
+  # SVD
 }
 
 

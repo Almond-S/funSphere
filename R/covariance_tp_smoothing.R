@@ -130,7 +130,7 @@ cov_symm_setup <- function(X, S) {
   DRsolve <- get_demmlerreinsch_solver(XxXtXxX, S, X_trafo = Z)
 
   # return fitting function
-  function(y, sp) {
+  function(y, sp, return.fun = FALSE) {
     stopifnot(is.list(y) & length(y) == length(X))
     # compute "Xy"
     XxXtYxY <- matrix(0, nrow = nrow(XxXtXxX))
@@ -139,7 +139,10 @@ cov_symm_setup <- function(X, S) {
       XxXtYxY <- XxXtYxY + get_XxXtYxY_noDiag(X[[i]], y[[i]], RX = RX[[i]])
     }
     # solve PLS to get coefficient matrix
-    matrix(DRsolve(sp, XxXtYxY), ncol = ncolX, nrow = ncolX)
+    fit <- function(sp) matrix(DRsolve(sp, XxXtYxY), ncol = ncolX, nrow = ncolX)
+    if(return.fun)
+      return(fit)
+    fit(sp)
   }
 }
 

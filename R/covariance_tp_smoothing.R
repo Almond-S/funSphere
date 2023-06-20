@@ -30,16 +30,23 @@ get_XxXtYxY_noDiag <- function(X, Y, RX = row_tensor_square(X)) {
 #' @export
 get_demmlerreinsch_solver <- function(XtX, S, X_trafo = NULL) {
   # first decomposition of design product
-  eX <- if(is.null(X_trafo)) eigen(XtX) else
-    eigen(crossprod(X_trafo, XtX) %*% X_trafo)
+  eX <- if(is.null(X_trafo)) eigen(XtX, symmetric = TRUE) else
+    eigen(crossprod(X_trafo, XtX) %*% X_trafo, symmetric = TRUE)
   # left cholesky-type factor
-  L <- sweep(eX$vectors, 2, 1/sqrt(eX$values), `*`)
+  L <- if(all(eX$values > 0))
+          sweep(eX$vectors, 2, 1/sqrt(eX$values), `*`) else {
+            k <- sum(eX$values>0)
+            message(cat("Not all eigenvalues of XtX are positive.",
+                        paste("Restricting to the k =", k, "basis functions where they are.")))
+            sweep(eX$vectors[, 1:k], 2, 1/sqrt(eX$values[1:k]), `*`)
+          }
+
   # adjust penalty
   K <- if(is.null(X_trafo)) crossprod( L, S ) %*% L else
     crossprod( L, crossprod(X_trafo, S) %*% X_trafo ) %*% L
 
   # then decomposition of adjusted penalty
-  eK <- eigen(K)
+  eK <- eigen(K, symmetric = TRUE)
   # update side factor
   L <- L_right <- L %*% eK$vectors
   # take trafo into prediction matrix

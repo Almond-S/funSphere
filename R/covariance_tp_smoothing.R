@@ -188,7 +188,7 @@ predict_square_smooth <- function(theta, X, decompose = FALSE, Gramian = NULL,
 }
 
 #' @export
-predict_square_smooth.matrix <- function(theta, X, decompose = FALSE,
+predict_square_smooth.matrix <- function(theta, X, decompose = FALSE, symmetric = FALSE,
                                          Gramian = NULL,
                                          Gramian_chol = NULL,
                                          Gramian_chol_inv = NULL) {
@@ -203,6 +203,14 @@ predict_square_smooth.matrix <- function(theta, X, decompose = FALSE,
     theta <- wtcrossprod(U, w = theta)
     X <- X %*% U_
   }
+
+  if(symmetric) {
+    e <- as.list(eigen(theta, symmetric = TRUE))
+    names(e) <- c("d", "u")
+    e$u <- X %*% e$u
+    return(e)
+  }
+
   SVD <- svd(theta)
   SVD[c("u", "v")] <- lapply(SVD[c("u", "v")], function(y) X %*% y)
 
@@ -271,7 +279,7 @@ cov_cross_setup <- function(X1, X2 = X1, S1, S2 = S1) {
   DRsolve2 <- get_demmlerreinsch_solver(X2xX1tX2xX1, S)
 
   # return fitting function
-  function(y1, y2 = y1, sp) { # U is a basis trafo matrix
+  function(y1, y2 = y1, sp, return.fun = FALSE) { # U is a basis trafo matrix
     stopifnot(is.list(y1) & length(y1) == length(X1))
     stopifnot(is.list(y2) & length(y2) == length(X2))
     # compute "Xy"
@@ -282,6 +290,9 @@ cov_cross_setup <- function(X1, X2 = X1, S1, S2 = S1) {
             X1[[i]], X2[[i]], y1[[i]], y2[[i]])
       }
     # solve PLS to get coefficient matrix
-    matrix(DRsolve2(sp, X2xX1tY2xY1), ncol = ncolX2, nrow = ncolX1)
+    fit <- function(sp) matrix(DRsolve2(sp, X2xX1tY2xY1), ncol = ncolX2, nrow = ncolX1)
+    if(return.fun)
+      return(fit)
+    fit(sp)
   }
 }

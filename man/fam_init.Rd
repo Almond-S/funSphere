@@ -16,9 +16,6 @@ fam_init(
   ...
 )
 }
-\arguments{
-\item{...}{}
-}
 \description{
 This returns OLS mean estimates underlying also
 all estimates of covariance components.

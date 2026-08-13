@@ -153,6 +153,84 @@ cov_symm_setup <- function(X, S) {
   }
 }
 
+#' Choose the smoothing parameter of a symmetric covariance smooth by k-fold
+#' cross-validation
+#'
+#' Splits the *curves* into \code{kfolds} folds, refits
+#' \code{\link{cov_symm_setup}} on each training set, and picks the smoothing
+#' parameter minimising the held-out squared prediction error of the
+#' off-diagonal products \eqn{y_{ij} y_{ik}}, \eqn{j \neq k}. The diagonal is
+#' excluded on both sides, matching the criterion \code{cov_symm_setup()} fits.
+#'
+#' Splitting by curve is what makes the criterion honest: the products within a
+#' curve are exactly what the fit interpolates, so a split that leaves any of a
+#' test curve's observations in the training set measures training error.
+#'
+#' Each curve contributes the *sum* over its held-out pairs, so curves observed
+#' more often carry more weight -- they also carry more information. Curves with
+#' fewer than two observations contribute no pair and are dropped from the test
+#' folds, as they are from the fit.
+#'
+#' @param X list of per-curve marginal design matrices, as for
+#' \code{\link{cov_symm_setup}}.
+#' @param S list with the penalty matrix (or matrices) of the marginal basis.
+#' @param y list of zero-mean per-curve responses, typically model residuals.
+#' @param kfolds number of folds. Ignored when \code{fold} is given.
+#' @param log_sp_range range of \code{log(sp)} searched by
+#' \code{\link[stats]{optimize}}.
+#' @param fold optional integer vector of length \code{length(X)} assigning each
+#' curve to a fold, for reproducing or sharing a split.
+#'
+#' @return a list with the selected \code{sp} and its \code{logsp}, the
+#' \code{objective} there, the \code{fold} used, and \code{criterion}, the
+#' cross-validation criterion as a function of \code{log(sp)} -- useful for
+#' plotting the curve behind the choice.
+#'
+#' @seealso \code{\link{cov_symm_setup}}
+#' @export
+cov_symm_cv <- function(X, S, y, kfolds = 5L, log_sp_range = c(-5, 5),
+                        fold = NULL) {
+  stopifnot(is.list(X), is.list(y), length(X) == length(y))
+  n <- length(X)
+  if(is.null(fold)) {
+    kfolds <- min(as.integer(kfolds), n)
+    if(kfolds < 2L)
+      stop(sQuote("kfolds"), " must be at least 2 to leave curves out.")
+    fold <- sample(rep_len(seq_len(kfolds), n))
+  }
+  fold <- as.integer(fold)
+  if(length(fold) != n)
+    stop(sQuote("fold"), " must assign one fold per curve (", n, ").")
+
+  # everything that does not depend on sp is built once per fold, so the search
+  # below costs one Demmler-Reinsch back-solve per candidate rather than a refit
+  parts <- lapply(sort(unique(fold)), function(k) {
+    train <- which(fold != k)
+    test <- which(fold == k)
+    test <- test[sapply(X[test], nrow) > 1]
+    if(!length(test)) return(NULL)
+    list(fit = cov_symm_setup(X[train], S)(y[train], return.fun = TRUE),
+         X = X[test], yy = lapply(y[test], tcrossprod))
+  })
+  parts <- parts[!sapply(parts, is.null)]
+  if(!length(parts))
+    stop("no test fold contains a curve with at least two observations.")
+
+  criterion <- function(logsp) {
+    mean(vapply(parts, function(p) {
+      theta <- p$fit(exp(logsp))
+      pred <- lapply(p$X, wtcrossprod, w = theta)
+      mean(unlist(Map(function(yy, pr) sum((yy - pr)^2) -
+                        sum((diag(yy) - diag(pr))^2), p$yy, pred)))
+    }, numeric(1)))
+  }
+
+  opt <- stats::optimize(criterion, log_sp_range)
+  list(sp = exp(opt$minimum), logsp = opt$minimum, objective = opt$objective,
+       fold = fold, criterion = criterion, log_sp_range = log_sp_range)
+}
+
+
 #' @export
 predict_square_smooths <- function(thetas, smooth_obj, newdata,
                                    decompose = FALSE,
@@ -162,6 +240,10 @@ predict_square_smooths <- function(thetas, smooth_obj, newdata,
   if(!is.list(thetas))
     thetas <- list(pred = thetas)
   X <- Predict.matrix(smooth_obj, data = newdata)
+  # the L2 default (see predict_square_smooth()) only depends on the evaluation
+  # grid, so it is built once here rather than once per theta
+  if(decompose && is.null(Gramian) && is.null(Gramian_chol))
+    Gramian <- L2_gramian(X)
 
   lapply(thetas, predict_square_smooth, X,
          decompose = decompose, Gramian = Gramian,
@@ -170,15 +252,36 @@ predict_square_smooths <- function(thetas, smooth_obj, newdata,
 }
 
 
+#' The L2 Gramian of a basis on an evaluation grid
+#'
+#' \code{crossprod(X)/nrow(X)} -- the matrix of mean products of the basis
+#' functions over the rows of \code{X}. For an equidistant grid covering a
+#' domain of volume one this is the \eqn{L^2} inner product matrix
+#' \eqn{\int b_i b_j}, which is the inner product eigenfunctions of a covariance
+#' operator are conventionally defined and normalized in.
+#'
+#' @param X a design matrix, typically \code{Predict.matrix(smooth_obj, newdata)}
+#' evaluated on an equidistant grid.
+#'
+#' @return a symmetric \code{ncol(X)} by \code{ncol(X)} matrix.
+#'
+#' @export
+L2_gramian <- function(X) crossprod(X) / nrow(X)
+
+
 #' Predict a single-tensor-product smooth
 #'
 #' @param theta an object representing the estimated coefficients
 #' @param smooth_obj a gam smoother object with a \code{Predict.matrix} method
 #' @param newdata data for prediction
 #' @param decompose logical, should prediction be returned in form of its SVD?
-#' @param Gramian an optional Gramian providing the Gam-matrix of the splines for SVD.
-#' For NULL, the default, the SVD is conducted with respect to an inner product in
-#' which the basis functions are orthonormal.
+#' @param Gramian the Gram matrix of the basis, defining the inner product the
+#' decomposition is taken in. Defaults to the \eqn{L^2} Gramian
+#' \code{\link{L2_gramian}(X)} of the evaluation grid, so that the returned
+#' functions are the \eqn{L^2} eigenfunctions of the fitted kernel -- the
+#' convention estimated eigenfunctions are normally reported in. Pass
+#' \code{diag(ncol(X))} for the previous default, a decomposition in the inner
+#' product in which the basis functions themselves are orthonormal.
 #'
 #' @export
 predict_square_smooth <- function(theta, X, decompose = FALSE, Gramian = NULL,
@@ -197,12 +300,12 @@ predict_square_smooth.matrix <- function(theta, X, decompose = FALSE, symmetric 
     wtcrossprod(X, w = theta)
   )
   # alternatively make SVD first
-  if(!is.null(Gramian)) {
-    U <- if(is.null(Gramian_chol)) chol(Gramian) else Gramian_chol
-    U_ <- if(is.null(Gramian_chol_inv)) solve(U) else Gramian_chol_inv
-    theta <- wtcrossprod(U, w = theta)
-    X <- X %*% U_
-  }
+  if(is.null(Gramian) && is.null(Gramian_chol))
+    Gramian <- L2_gramian(X)
+  U <- if(is.null(Gramian_chol)) chol(Gramian) else Gramian_chol
+  U_ <- if(is.null(Gramian_chol_inv)) solve(U) else Gramian_chol_inv
+  theta <- wtcrossprod(U, w = theta)
+  X <- X %*% U_
 
   if(symmetric) {
     e <- as.list(eigen(theta, symmetric = TRUE))

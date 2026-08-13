@@ -15,9 +15,6 @@ fam_EM(
   ...
 )
 }
-\arguments{
-\item{...}{}
-}
 \description{
 Run EM algorithm for estimation of timeseries FAM
 }

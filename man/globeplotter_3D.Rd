@@ -20,9 +20,6 @@ globeplotter_3D(
   ...
 )
 }
-\arguments{
-\item{...}{}
-}
 \description{
 Plot data.frame with predictions in interactive 3D chart
 }

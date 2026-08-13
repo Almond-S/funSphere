@@ -28,8 +28,12 @@ cov_symm_fit <- cov_symm_setup(X, cov_smooth$S)
 cov_symm_fit <- cov_symm_fit(res, return.fun = TRUE)
 
 
-# Hyperparameter tuning on a test set ---------------------------------------
+# Hyperparameter tuning by cross-validation ---------------------------------
 
+# NOTE: `train` is a *logical* vector, so the held-out set is `res[!train]`.
+# `res[-train]` -- which this script used to say -- coerces to -1/0 and selects
+# "everything but curve 1", i.e. almost the training set itself; the criterion
+# is then training error and the search runs into the lower end of the interval.
 set.seed(390849)
 train <- rep(FALSE, length(X))
 train[sample(seq_along(X), 40)] <- TRUE
@@ -42,8 +46,8 @@ track$err <- list()
 
 SSE <- function(logsp) {
   theta <- cov_symm_train(exp(logsp))
-  res2_test <- lapply(res[-train], tcrossprod)
-  pred_test <- lapply(X[-train], wtcrossprod, w = theta)
+  res2_test <- lapply(res[!train], tcrossprod)
+  pred_test <- lapply(X[!train], wtcrossprod, w = theta)
   error <- unlist(Map(function(res2, pred) sum((res2 - pred)^2) -
                         sum((diag(res2) - diag(pred))^2), res2_test, pred_test))
   error <- mean(error)
@@ -55,6 +59,11 @@ SSE <- function(logsp) {
 opt <- optimize(SSE, c(-5,5))
 plot(log(unlist(track$sp)), unlist(track$err), t = "b")
 
+# a single hold-out of this size is noisy; cov_symm_cv() averages over folds
+cv <- cov_symm_cv(X, cov_smooth$S, res, kfolds = 5L)
+plot(seq(-5, 5, len = 41), sapply(seq(-5, 5, len = 41), cv$criterion), t = "b")
+abline(v = cv$logsp)
+
 
 # fit on all data and predict ---------------------------------------------
 
@@ -65,11 +74,10 @@ griddat <- data.frame(Time = seq(min(dat$Time), max(dat$Time), len = 100))
 covsurf <- predict_square_smooths(list(theta), cov_smooth, griddat)[[1]]
 image(covsurf, asp = 1)
 
-# first compute correct Grammian
-Xgrid <- Predict.matrix(cov_smooth, griddat)
+# the L2 Gramian of `griddat` is the default, so this decomposes into the L2
+# eigenfunctions without passing one
 coveigen <- predict_square_smooths(list(theta), cov_smooth, griddat,
-                                   decompose = TRUE,
-                                   Gramian = crossprod(Xgrid) / 100)[[1]]
+                                   decompose = TRUE)[[1]]
 matplot(coveigen$v[, 1:4], lwd = log(coveigen$d[1:4]), t = "l")
 
 
@@ -112,10 +120,7 @@ griddat <- data.frame(Time = seq(min(dat$Time), max(dat$Time), len = 100))
 covsurf <- predict_square_smooths(list(theta), cov_smooth, griddat)[[1]]
 image(covsurf, asp = 1)
 
-# first compute correct Grammian
-Xgrid <- Predict.matrix(cov_smooth, griddat)
 coveigen <- predict_square_smooths(list(theta), cov_smooth, griddat,
-                                   decompose = TRUE,
-                                   Gramian = crossprod(Xgrid) / 100)[[1]]
+                                   decompose = TRUE)[[1]]
 matplot(coveigen$v[, 1:4], lwd = log(coveigen$d[1:4]), t = "l")
 

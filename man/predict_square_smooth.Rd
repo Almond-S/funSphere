@@ -19,9 +19,13 @@ predict_square_smooth(
 
 \item{decompose}{logical, should prediction be returned in form of its SVD?}
 
-\item{Gramian}{an optional Gramian providing the Gam-matrix of the splines for SVD.
-For NULL, the default, the SVD is conducted with respect to an inner product in
-which the basis functions are orthonormal.}
+\item{Gramian}{the Gram matrix of the basis, defining the inner product the
+decomposition is taken in. Defaults to the \eqn{L^2} Gramian
+\code{\link{L2_gramian}(X)} of the evaluation grid, so that the returned
+functions are the \eqn{L^2} eigenfunctions of the fitted kernel -- the
+convention estimated eigenfunctions are normally reported in. Pass
+\code{diag(ncol(X))} for the previous default, a decomposition in the inner
+product in which the basis functions themselves are orthonormal.}
 
 \item{smooth_obj}{a gam smoother object with a \code{Predict.matrix} method}
 

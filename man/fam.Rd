@@ -6,9 +6,6 @@
 \usage{
 fam(...)
 }
-\arguments{
-\item{...}{}
-}
 \description{
 Regression for sparse functional responses
 }

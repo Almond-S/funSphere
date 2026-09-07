@@ -4,13 +4,17 @@
 \alias{make_summation_matrix}
 \title{Construct symmetry constraint matrix for bivariate symmetric smoothing.}
 \usage{
-make_summation_matrix(k, skew = FALSE)
+make_summation_matrix(k, skew = FALSE, sparse = FALSE)
 }
 \arguments{
 \item{k}{number of marginal basis functions.}
 
 \item{skew}{logical, should the basis be constraint to skew-symmetry instead
 of symmetry.}
+
+\item{sparse}{logical, return the matrix as a sparse \code{Matrix} (one or
+two non-zeros per column) rather than dense. Same matrix; this is what makes
+\code{\link{cov_symm_setup}} affordable beyond a few dozen basis functions.}
 }
 \value{
 A basis transformation matrix of dimension \eqn{k^2 \times G} with

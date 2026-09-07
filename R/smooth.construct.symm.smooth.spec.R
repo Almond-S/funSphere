@@ -37,16 +37,38 @@
 #' @param k number of marginal basis functions.
 #' @param skew logical, should the basis be constraint to skew-symmetry instead
 #' of symmetry.
+#' @param sparse logical, return the matrix as a sparse \code{Matrix} (one or
+#' two non-zeros per column) rather than dense. Same matrix; this is what makes
+#' \code{\link{cov_symm_setup}} affordable beyond a few dozen basis functions.
 #' @seealso \code{\link[mgcv]{smooth.construct}} and \code{\link[mgcv]{smoothCon}} for details on constructors
 #' @export
 #' @author Jona Cederbaum, Almond Stoecker
 #' @return A basis transformation matrix of dimension \eqn{k^2 \times G} with
 #' \eqn{G<k^2} depending on the specified constraint.
 #' @references Cederbaum, Scheipl, Greven (2016): Fast symmetric additive covariance smoothing.
-make_summation_matrix <- function(k, skew = FALSE){
+make_summation_matrix <- function(k, skew = FALSE, sparse = FALSE){
   ind_mat <- matrix(1:k^2, nrow = k, ncol = k) # index square
   pairs <- cbind(c(ind_mat), c(t(ind_mat))) # all pairs using transposed = mirror
   cons <- pairs[pairs[, 1]<pairs[, 2], , drop = FALSE] # pairs to use
+
+  if(skew) ind_vec <- cons[,1] else
+    ind_vec <- pairs[pairs[, 1] <= pairs[, 2], 1, drop = FALSE]
+
+  if(sparse) {
+    # the same matrix as a sparse Matrix: column j is the unit vector of
+    # position ind_vec[j] plus (minus, if skew) that of its mirror position,
+    # one or two non-zeros per column. The dense k^2 x k(k+1)/2 matrix is
+    # what makes cov_symm_setup() unaffordable beyond a few dozen basis
+    # functions: at k = 118 its products with the k^2 x k^2 design product
+    # are 2.7 TFlop each.
+    r <- as.vector(ind_vec)
+    m <- pairs[r, 2]
+    off <- m != r
+    return(sparseMatrix(i = c(r, m[off]), j = c(seq_along(r), which(off)),
+                        x = c(rep(1, length(r)), rep(if(skew) -1 else 1, sum(off))),
+                        dims = c(k^2, length(r))))
+  }
+
   C <- diag(k^2) # initialize matrix
 
   # generate summation matrix for skew-symmetric / symmetric case
@@ -55,8 +77,6 @@ make_summation_matrix <- function(k, skew = FALSE){
   } else {
     C[, cons[, 1]] <- C[, cons[, 1]] + C[, cons[, 2]]
   }
-  if(skew) ind_vec <- cons[,1] else
-    ind_vec <- pairs[pairs[, 1] <= pairs[, 2], 1, drop = FALSE]
   C <- C[, ind_vec]
 
   C

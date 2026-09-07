@@ -5,7 +5,15 @@
 \title{Choose the smoothing parameter of a symmetric covariance smooth by k-fold
 cross-validation}
 \usage{
-cov_symm_cv(X, S, y, kfolds = 5L, log_sp_range = c(-5, 5), fold = NULL)
+cov_symm_cv(
+  X,
+  S,
+  y,
+  kfolds = 5L,
+  log_sp_range = c(-5, 5),
+  fold = NULL,
+  ridge = 0
+)
 }
 \arguments{
 \item{X}{list of per-curve marginal design matrices, as for
@@ -22,6 +30,9 @@ cov_symm_cv(X, S, y, kfolds = 5L, log_sp_range = c(-5, 5), fold = NULL)
 
 \item{fold}{optional integer vector of length \code{length(X)} assigning each
 curve to a fold, for reproducing or sharing a split.}
+
+\item{ridge}{passed on to \code{\link{cov_symm_setup}}, a relative ridge on
+the pair design product for ill-conditioned bases; \code{0} by default.}
 }
 \value{
 a list with the selected \code{sp} and its \code{logsp}, the

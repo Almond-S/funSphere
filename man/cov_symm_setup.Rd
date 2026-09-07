@@ -4,12 +4,15 @@
 \alias{cov_symm_setup}
 \title{Set up smooth covariance fitting}
 \usage{
-cov_symm_setup(X, S)
+cov_symm_setup(X, S, ridge = 0)
 }
 \arguments{
 \item{X}{list of according marginal design matrices}
 
 \item{S}{list with penalty matrix (or matrices) of marginal design matrices}
+
+\item{ridge}{passed on to \code{\link{get_demmlerreinsch_solver}}: a relative
+ridge on the pair design product, \code{0} by default.}
 }
 \value{
 symmetric covariance fitting function returning coefficient matrix of

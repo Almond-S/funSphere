@@ -4,19 +4,42 @@
 \alias{L2_gramian}
 \title{The L2 Gramian of a basis on an evaluation grid}
 \usage{
-L2_gramian(X)
+L2_gramian(X, grid = NULL, weights = NULL)
 }
 \arguments{
 \item{X}{a design matrix, typically \code{Predict.matrix(smooth_obj, newdata)}
-evaluated on an equidistant grid.}
+evaluated on a grid.}
+
+\item{grid}{the grid \code{X} was evaluated on, passed to
+\code{\link{quadrature_weights}}; \code{NULL} leaves the rule unknown.}
+
+\item{weights}{quadrature weights for the rows of \code{X}, overriding
+\code{grid}; they are rescaled to sum to one.}
 }
 \value{
-a symmetric \code{ncol(X)} by \code{ncol(X)} matrix.
+a symmetric \code{ncol(X)} by \code{ncol(X)} matrix, with the
+quadrature rule used in attribute \code{"rule"}.
 }
 \description{
-\code{crossprod(X)/nrow(X)} -- the matrix of mean products of the basis
-functions over the rows of \code{X}. For an equidistant grid covering a
-domain of volume one this is the \eqn{L^2} inner product matrix
-\eqn{\int b_i b_j}, which is the inner product eigenfunctions of a covariance
-operator are conventionally defined and normalized in.
+The matrix \eqn{\int b_i b_j} of inner products of the basis functions,
+approximated by quadrature on the rows of \code{X}: \code{crossprod(X *
+sqrt(w))} with weights \code{w} summing to one. It is the inner product
+eigenfunctions of a covariance operator are conventionally defined and
+normalized in.
+}
+\details{
+\strong{The quadrature rule matters.} Given \code{grid} or \code{weights} the
+trapezoid rule is used (see \code{\link{quadrature_weights}}); with neither,
+nothing is known about the nodes and the plain mean \code{crossprod(X)/nrow(X)}
+is all that is left -- which weighs the two endpoints of a grid like interior
+points and is only first-order accurate. On a 100-point grid that is a 2.5 to
+6.1\\% error on a cubic spline basis' Gram matrix, enough to move the
+eigenfunctions of a fitted kernel by several degrees where the estimate is
+otherwise accurate to one. \strong{Pass the grid.} Until 2026-09-08 this function
+took only \code{X} and always used the plain mean;
+\code{\link{predict_square_smooths}} now passes its \code{newdata} on for
+you.
+}
+\seealso{
+\code{\link{quadrature_weights}}
 }

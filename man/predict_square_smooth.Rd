@@ -11,6 +11,7 @@ predict_square_smooth(
   Gramian = NULL,
   Gramian_chol = NULL,
   Gramian_chol_inv = NULL,
+  grid = NULL,
   ...
 )
 }
@@ -21,11 +22,18 @@ predict_square_smooth(
 
 \item{Gramian}{the Gram matrix of the basis, defining the inner product the
 decomposition is taken in. Defaults to the \eqn{L^2} Gramian
-\code{\link{L2_gramian}(X)} of the evaluation grid, so that the returned
-functions are the \eqn{L^2} eigenfunctions of the fitted kernel -- the
-convention estimated eigenfunctions are normally reported in. Pass
-\code{diag(ncol(X))} for the previous default, a decomposition in the inner
+\code{\link{L2_gramian}(X, grid)} of the evaluation grid, so that the
+returned functions are the \eqn{L^2} eigenfunctions of the fitted kernel --
+the convention estimated eigenfunctions are normally reported in. Pass
+\code{diag(ncol(X))} for the oldest default, a decomposition in the inner
 product in which the basis functions themselves are orthonormal.}
+
+\item{grid}{the evaluation grid \code{X} belongs to, used for the quadrature
+rule of the default \code{Gramian} -- \strong{pass it}: without it the rule falls
+back to the plain mean over the rows of \code{X}, which weighs the endpoints
+of a grid like interior points and is only first-order accurate. See
+\code{\link{L2_gramian}}. \code{\link{predict_square_smooths}} passes its
+\code{newdata} automatically.}
 
 \item{smooth_obj}{a gam smoother object with a \code{Predict.matrix} method}
 
